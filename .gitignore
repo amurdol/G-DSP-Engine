@@ -27,10 +27,27 @@ impl/
 *.ngd
 *.posp
 
+# --- LaTeX build artifacts ---
+*.aux
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+*.toc
+*.out
+*.nav
+*.snm
+*.bbl
+*.blg
+*.lof
+*.lot
+
 # --- Generated figures (reproducible) ---
 # Uncomment to track them in git:
 # docs/figures/*.png
 docs/references
+
+# --- Temporary scripts ---
+install_miktex.ps1
 
 # --- OS ---
 Thumbs.db

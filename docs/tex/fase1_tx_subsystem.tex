@@ -1,0 +1,1063 @@
+% !TEX root = fase1_tx_subsystem.tex
+% ============================================================================
+% G-DSP Engine — Documentacion Tecnica: Fase 1
+% Implementacion del Subsistema de Transmision
+% ============================================================================
+% Autor      : G-DSP Team
+% Proyecto   : TFG — Procesador Banda Base 16-QAM sobre Gowin GW1NR-9
+% Compilar   : pdflatex fase1_tx_subsystem.tex  (x2 para referencias)
+% ============================================================================
+
+\documentclass[a4paper,11pt,spanish]{article}
+
+% ---------------------------------------------------------------------------
+% Paquetes
+% ---------------------------------------------------------------------------
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish,es-tabla]{babel}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{siunitx}
+\usepackage{hyperref}
+\usepackage{geometry}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, calc, shapes.geometric}
+
+\geometry{margin=2.5cm}
+
+\sisetup{
+    output-decimal-marker = {,},
+    per-mode = symbol
+}
+
+% ---------------------------------------------------------------------------
+% Configuracion de listings para SystemVerilog
+% ---------------------------------------------------------------------------
+\lstdefinelanguage{SystemVerilog}{
+    morekeywords={module, endmodule, input, output, logic, signed, parameter,
+                  int, always_ff, always_comb, posedge, negedge, if, else,
+                  begin, end, for, case, endcase, function, automatic,
+                  endfunction, localparam, assign, typedef, package,
+                  endpackage, import, default, generate, endgenerate},
+    sensitive=true,
+    morecomment=[l]{//},
+    morecomment=[s]{/*}{*/},
+    morestring=[b]",
+}
+
+\lstset{
+    language=SystemVerilog,
+    basicstyle=\ttfamily\footnotesize,
+    keywordstyle=\bfseries\color{blue!70!black},
+    commentstyle=\itshape\color{green!50!black},
+    stringstyle=\color{red!60!black},
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    numbersep=5pt,
+    frame=single,
+    breaklines=true,
+    captionpos=b,
+    tabsize=4,
+    showstringspaces=false,
+}
+
+% ---------------------------------------------------------------------------
+% Datos del documento
+% ---------------------------------------------------------------------------
+\title{%
+    \textbf{G-DSP Engine} \\[0.5em]
+    \Large Implementaci\'{o}n del Subsistema de Transmisi\'{o}n \\[0.3em]
+    \large Fase~1 --- Documentaci\'{o}n T\'{e}cnica del TFG
+}
+\author{G-DSP Team}
+\date{Febrero 2026}
+
+% ============================================================================
+\begin{document}
+% ============================================================================
+
+\maketitle
+\tableofcontents
+\newpage
+
+% ============================================================================
+\section{Introducci\'{o}n al Subsistema de Transmisi\'{o}n}
+\label{sec:intro_tx}
+% ============================================================================
+
+El subsistema de transmisi\'{o}n (TX) del procesador banda base G-DSP Engine
+constituye la primera etapa funcional del m\'{o}dem 16-QAM implementado
+sobre la FPGA Gowin GW1NR-LV9QN88PC6/I5 (placa de desarrollo Sipeed Tang
+Nano~9K). Su funci\'{o}n es generar una se\~{n}al banda base conformada
+espectralmente, lista para su transmisi\'{o}n por el canal o, en el \'{a}mbito
+de este proyecto, para su procesamiento por el subsistema de recepci\'{o}n
+y su visualizaci\'{o}n en tiempo real mediante HDMI.
+
+La cadena de transmisi\'{o}n implementada sigue el diagrama de bloques
+cl\'{a}sico de un transmisor QAM digital:
+
+\begin{equation}
+    \text{PRBS-23} \;\xrightarrow{\;4\;\text{bits}}\;
+    \text{Mapper 16-QAM} \;\xrightarrow{\;I/Q\;}\;
+    \uparrow\!{}_{\times 4} \;\xrightarrow{\;}\;
+    \text{FIR RRC} \;\xrightarrow{\;}\;
+    \text{TX}_{I,Q}
+    \label{eq:tx_chain}
+\end{equation}
+
+Los m\'{o}dulos RTL que materializan esta cadena, implementados en
+SystemVerilog, son los siguientes:
+
+\begin{enumerate}[label=\textbf{\arabic*.}]
+    \item \texttt{bit\_gen} --- Generador de bits pseudo-aleatorios (PRBS-23).
+    \item \texttt{qam16\_mapper} --- Mapeador 16-QAM con codificaci\'{o}n Gray.
+    \item \texttt{rrc\_filter} --- Filtro FIR Root-Raised Cosine (33 taps).
+    \item \texttt{tx\_top} --- Integraci\'{o}n del subsistema completo,
+          incluyendo el sobremuestreo por inserci\'{o}n de ceros.
+\end{enumerate}
+
+Todos los m\'{o}dulos comparten par\'{a}metros, tipos y constantes definidos
+en el paquete centralizado \texttt{gdsp\_pkg}, lo que garantiza la
+coherencia de la aritm\'{e}tica de punto fijo a lo largo de toda la
+jerarqu\'{\i}a de dise\~{n}o.
+
+La plataforma objetivo impone restricciones estrictas de recursos
+(\num{8640}~LUT4, 20~bloques DSP MULT9, \SI{27}{\mega\hertz} de reloj
+del sistema) que han condicionado cada decisi\'{o}n arquitect\'{o}nica,
+como se detalla en las secciones siguientes.
+
+
+% ============================================================================
+\section{Aritm\'{e}tica de Punto Fijo: Formato Q1.11}
+\label{sec:fixed_point}
+% ============================================================================
+
+% ----------------------------------------------------------------------------
+\subsection{Justificaci\'{o}n del formato de 12 bits firmados}
+\label{subsec:fp_justificacion}
+% ----------------------------------------------------------------------------
+
+La elecci\'{o}n de la representaci\'{o}n num\'{e}rica es una decisi\'{o}n
+cr\'{\i}tica en todo dise\~{n}o DSP embebido, ya que afecta directamente
+a la precisi\'{o}n de la se\~{n}al, al consumo de recursos y al rendimiento
+del camino cr\'{\i}tico. En el proyecto G-DSP Engine se adopta el formato
+\textbf{Q1.11} en complemento a dos:
+
+\begin{itemize}
+    \item \textbf{1 bit de signo} (impl\'{\i}cito como MSB del complemento a dos).
+    \item \textbf{0 bits enteros} (excluyendo el signo).
+    \item \textbf{11 bits fraccionarios}.
+    \item \textbf{Anchura total}: $N = 1 + 0 + 11 = 12$ bits.
+\end{itemize}
+
+Se emplea la convenci\'{o}n de Texas Instruments, donde la notaci\'{o}n
+$Q_{m.n}$ indica $m$ bits enteros (incluyendo el bit de signo) y $n$ bits
+fraccionarios, con una anchura total de $m + n$ bits. As\'{\i}, Q1.11
+representa:
+
+\begin{equation}
+    x = -b_{11} \cdot 2^{0} + \sum_{k=0}^{10} b_k \cdot 2^{k-11}
+    \label{eq:q1_11_def}
+\end{equation}
+
+donde $b_{11}$ es el MSB (bit de signo) y $b_0$ es el LSB.
+
+El rango representable es:
+
+\begin{equation}
+    x \in \left[-1{,}0\;;\; +1{,}0 - 2^{-11}\right]
+    = \left[-1{,}0\;;\; +0{,}99951\right]
+    \label{eq:rango_q1_11}
+\end{equation}
+
+con una resoluci\'{o}n (paso de cuantificaci\'{o}n) de:
+
+\begin{equation}
+    \Delta = 2^{-11} = \frac{1}{2048} \approx \num{4,88e-4}
+    \label{eq:resolucion}
+\end{equation}
+
+\paragraph{Implicaciones para la modulaci\'{o}n.}
+Los niveles de la constelaci\'{o}n 16-QAM normalizados a potencia unitaria
+tienen valor m\'{a}ximo $|3/\sqrt{10}| \approx 0{,}9487$, que cae
+holgadamente dentro del rango $[-1, +0{,}9995]$, dejando un margen del
+$5{,}4\,\%$ para acomodar el \textit{overshoot} t\'{\i}pico de la
+conformaci\'{o}n espectral RRC (que depende del factor de roll-off
+$\alpha$). Para $\alpha = 0{,}25$, el \textit{overshoot} pico-a-pico
+del filtro RRC es inferior al $4\,\%$ del nivel de pico de la se\~{n}al,
+por lo que el formato Q1.11 resulta suficiente sin riesgo de saturaci\'{o}n.
+
+\paragraph{Adaptaci\'{o}n a los recursos DSP.}
+Los bloques MULT9 del GW1NR-9 operan nativamente en modo $9 \times 9$ bits
+firmados o pueden acoplarse en pares para formar multiplicadores de
+$18 \times 18$ bits (modo MULT18). Una muestra de 12~bits y un coeficiente
+de 12~bits requieren como m\'{\i}nimo el modo MULT18, lo que resulta
+\'{o}ptimo: anchuras menores desperdiciar\'{\i}an capacidad DSP y anchuras
+mayores (por ejemplo, 16~bits) requerir\'{\i}an acoplar cuatro MULT9,
+duplicando el consumo de slices DSP.
+
+% ----------------------------------------------------------------------------
+\subsection{Relaci\'{o}n se\~{n}al a ruido de cuantificaci\'{o}n (SQNR)}
+\label{subsec:sqnr}
+% ----------------------------------------------------------------------------
+
+Para un cuantificador uniforme de $B$ bits fraccionarios con se\~{n}al de
+entrada sinusoidal a fondo de escala, la relaci\'{o}n se\~{n}al a ruido de
+cuantificaci\'{o}n viene dada por la f\'{o}rmula cl\'{a}sica:
+
+\begin{equation}
+    \text{SQNR} \approx 6{,}02 \cdot B + 1{,}76 \;\text{dB}
+    \label{eq:sqnr}
+\end{equation}
+
+Sustituyendo $B = 11$ (bits fraccionarios del formato Q1.11):
+
+\begin{equation}
+    \text{SQNR} \approx 6{,}02 \times 11 + 1{,}76
+    = 66{,}22 + 1{,}76
+    = \boxed{67{,}98\;\text{dB}}
+    \label{eq:sqnr_val}
+\end{equation}
+
+Este valor de ${\sim}\SI{68}{\decibel}$ es ampliamente superior al
+requisito t\'{\i}pico de un sistema 16-QAM, que opera con
+$E_b/N_0 \sim \SI{10}{\decibel}$ en el umbral de BER objetivo
+($10^{-5}$). El ruido de cuantificaci\'{o}n queda, por tanto, m\'{a}s de
+\SI{55}{\decibel} por debajo del ruido t\'{e}rmico del canal, siendo
+despreciable a efectos pr\'{a}cticos.
+
+% ----------------------------------------------------------------------------
+\subsection{Crecimiento de bits en la cadena de procesado}
+\label{subsec:bit_growth}
+% ----------------------------------------------------------------------------
+
+En toda cadena DSP, las operaciones aritm\'{e}ticas incrementan
+progresivamente la anchura de palabra. La Tabla~\ref{tab:bit_growth}
+resume la evoluci\'{o}n a lo largo del subsistema TX.
+
+\begin{table}[H]
+    \centering
+    \caption{Crecimiento de bits a lo largo de la cadena TX.}
+    \label{tab:bit_growth}
+    \begin{tabular}{@{} l c c l @{}}
+        \toprule
+        \textbf{Etapa} & \textbf{Formato} & \textbf{Bits} & \textbf{Justificaci\'{o}n} \\
+        \midrule
+        Muestra de entrada      & Q1.11 & 12 & Se\~{n}al I/Q original \\
+        Coeficiente FIR         & Q1.11 & 12 & Misma anchura que datos \\
+        Producto (dato $\times$ coef.) & Q2.22 & 24 & $12 + 12 = 24$ \\
+        Acumulador (30 bits)    & Q8.22 & 30 & $24 + \lceil\log_2(33)\rceil = 30$ \\
+        Salida truncada         & Q1.11 & 12 & Redondeo convergente \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Los 6~bits adicionales del acumulador ($\lceil\log_2(33)\rceil = 6$)
+previenen cualquier desbordamiento durante la acumulaci\'{o}n de hasta
+33~t\'{e}rminos, garantizando que la precisi\'{o}n num\'{e}rica del filtro
+est\'{e} limitada \'{u}nicamente por la truncaci\'{o}n final, y no por
+errores de desbordamiento intermedios.
+
+
+% ============================================================================
+\section{Generaci\'{o}n de Bits: PRBS-23 (LFSR)}
+\label{sec:bit_gen}
+% ============================================================================
+
+% ----------------------------------------------------------------------------
+\subsection{Polinomio generador seg\'{u}n ITU-T O.151}
+\label{subsec:lfsr_poly}
+% ----------------------------------------------------------------------------
+
+Para la generaci\'{o}n de la secuencia de datos de prueba se emplea un
+\textit{Linear Feedback Shift Register} (LFSR) de longitud m\'{a}xima,
+conforme a la recomendaci\'{o}n ITU-T O.151. El polinomio caracter\'{\i}stico
+es:
+
+\begin{equation}
+    p(x) = x^{23} + x^{18} + 1
+    \label{eq:lfsr_poly}
+\end{equation}
+
+Este polinomio es primitivo sobre $\text{GF}(2)$, lo que garantiza que la
+secuencia generada tiene per\'{\i}odo m\'{a}ximo:
+
+\begin{equation}
+    L = 2^{23} - 1 = \num{8388607} \;\text{bits}
+    \label{eq:lfsr_period}
+\end{equation}
+
+Para la modulaci\'{o}n 16-QAM, con 4 bits por s\'{\i}mbolo, esto equivale
+a $L/4 = \num{2097151}$ s\'{\i}mbolos antes de que la secuencia se repita.
+A una tasa de s\'{\i}mbolo de $f_{\text{sym}} = 27/4 = \SI{6,75}{\mega\hertz}$,
+el per\'{\i}odo de repetici\'{o}n es:
+
+\begin{equation}
+    T_{\text{rep}} = \frac{2^{23}-1}{4 \cdot f_{\text{sym}}}
+    = \frac{\num{8388607}}{4 \times \num{6,75e6}}
+    \approx \SI{0,311}{\second}
+    \label{eq:period_time}
+\end{equation}
+
+Este per\'{\i}odo es suficientemente largo para que las propiedades
+estad\'{\i}sticas de la secuencia sean indistinguibles de un proceso
+verdaderamente aleatorio en el contexto de las pruebas de verificaci\'{o}n.
+
+La elecci\'{o}n de una secuencia PRBS normalizada (frente a un generador
+aleatorio arbitrario) se justifica por dos razones:
+
+\begin{enumerate}
+    \item \textbf{Repetibilidad}: permite la verificaci\'{o}n \textit{bit-true}
+          contra el modelo de referencia Python (\textit{Golden Model}).
+    \item \textbf{Propiedades espectrales}: la PRBS-23 presenta un espectro
+          plano en la banda de inter\'{e}s, lo que la convierte en una
+          excitaci\'{o}n adecuada para la medida de respuesta del sistema.
+\end{enumerate}
+
+% ----------------------------------------------------------------------------
+\subsection{Desenrollado del LFSR para entrega paralela}
+\label{subsec:lfsr_unroll}
+% ----------------------------------------------------------------------------
+
+El mapeador 16-QAM requiere 4~bits por s\'{\i}mbolo en cada ciclo de
+reloj en el que se genera un nuevo s\'{\i}mbolo (cada $\text{SPS} = 4$
+ciclos de reloj del sistema). Un LFSR convencional produce un \'{u}nico
+bit por ciclo, lo que obligar\'{\i}a a acumular bits durante 4 ciclos
+consecutivos e introducir\'{\i}a latencia y complejidad de control
+innecesarias.
+
+La soluci\'{o}n adoptada es el \textbf{desenrollado combinacional}
+(\textit{loop unrolling}) del LFSR: se calcula la funci\'{o}n de transici\'{o}n
+de estado 4 veces en cascada dentro de un mismo ciclo de reloj, obteniendo
+los 4 bits de salida simult\'{a}neamente. La funci\'{o}n de avance unitario
+se define como:
+
+\begin{equation}
+    \text{fb} = s[22] \oplus s[17], \qquad
+    s' = \{s[21:0],\; \text{fb}\}
+    \label{eq:lfsr_step}
+\end{equation}
+
+donde $s[k]$ denota el bit $k$-\'{e}simo del estado del LFSR (indexaci\'{o}n
+desde cero) y $\oplus$ es la operaci\'{o}n XOR. El desenrollado produce
+una cadena de estados intermedios:
+
+\begin{equation}
+    s^{(0)} = s_{\text{actual}}, \quad
+    s^{(i+1)} = f_{\text{step}}(s^{(i)}), \quad
+    i \in \{0,1,2,3\}
+    \label{eq:unroll_chain}
+\end{equation}
+
+El bit de salida de cada paso es el MSB del estado intermedio
+$s^{(i)}[22]$, y los 4~bits se recogen en paralelo:
+
+\begin{equation}
+    \texttt{bits\_out}[3-i] = s^{(i)}[22], \qquad i \in \{0,1,2,3\}
+    \label{eq:bits_parallel}
+\end{equation}
+
+El nuevo estado del LFSR se actualiza al estado final $s^{(4)}$ en el
+flanco de reloj, y todo el c\'{a}lculo combinacional intermedio se resuelve
+dentro de un \'{u}nico per\'{\i}odo de reloj. Dado que cada paso del
+desenrollado implica \'{u}nicamente una puerta XOR y un desplazamiento,
+el camino cr\'{\i}tico total del desenrollado de 4 etapas es de apenas
+4 niveles de XOR, lo que resulta trivial para una frecuencia de operaci\'{o}n
+de \SI{27}{\mega\hertz} ($T_{\text{clk}} \approx \SI{37}{\nano\second}$).
+
+La semilla inicial se fija en el valor \texttt{0x7FFFFF} (\textit{all-ones}),
+evitando el estado de bloqueo $s = 0$ que es inherente a todo LFSR est\'{a}ndar.
+La carga de la semilla se efect\'{u}a mediante la se\~{n}al de reset
+as\'{\i}ncrono \texttt{rst\_n}.
+
+
+% ============================================================================
+\section{Mapeador 16-QAM con Codificaci\'{o}n Gray}
+\label{sec:qam_mapper}
+% ============================================================================
+
+% ----------------------------------------------------------------------------
+\subsection{Codificaci\'{o}n Gray por eje}
+\label{subsec:gray_coding}
+% ----------------------------------------------------------------------------
+
+La modulaci\'{o}n 16-QAM asigna bloques de $\log_2(16) = 4$ bits a puntos
+de una constelaci\'{o}n bidimensional. El mapeador implementado separa los
+4~bits en dos pares independientes: los bits~$[3:2]$ controlan el eje
+en fase (I) y los bits~$[1:0]$ controlan el eje en cuadratura (Q).
+
+Para cada eje se aplica una \textbf{codificaci\'{o}n Gray}, en la que
+s\'{\i}mbolos adyacentes en la constelaci\'{o}n difieren en exactamente
+un bit. Esto minimiza la probabilidad de error de bit (BER) para una
+probabilidad de error de s\'{\i}mbolo (SER) dada, ya que la mayor\'{\i}a
+de errores de detecci\'{o}n se producen entre s\'{\i}mbolos vecinos.
+
+La correspondencia entre los 2~bits de cada eje y el nivel de la
+constelaci\'{o}n se recoge en la Tabla~\ref{tab:gray_lut}.
+
+\begin{table}[H]
+    \centering
+    \caption{Tabla de correspondencia Gray para un eje de la constelaci\'{o}n 16-QAM.}
+    \label{tab:gray_lut}
+    \begin{tabular}{@{} c c c c @{}}
+        \toprule
+        \textbf{Bits} & \textbf{Nivel} & \textbf{Valor normalizado} & \textbf{Q1.11 (decimal)} \\
+        \midrule
+        \texttt{00} & $-3$ & $-3/\sqrt{10} \approx -0{,}9487$ & $-1943$ \\
+        \texttt{01} & $-1$ & $-1/\sqrt{10} \approx -0{,}3162$ & $-648$  \\
+        \texttt{11} & $+1$ & $+1/\sqrt{10} \approx +0{,}3162$ & $+648$  \\
+        \texttt{10} & $+3$ & $+3/\sqrt{10} \approx +0{,}9487$ & $+1943$ \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\noindent
+N\'{o}tese que la transici\'{o}n entre niveles adyacentes ($-3 \to -1$,
+$-1 \to +1$, $+1 \to +3$) cambia exactamente un bit en cada caso:
+$\texttt{00} \to \texttt{01} \to \texttt{11} \to \texttt{10}$, como
+exige el c\'{o}digo Gray.
+
+% ----------------------------------------------------------------------------
+\subsection{Normalizaci\'{o}n de potencia unitaria}
+\label{subsec:qam_normalization}
+% ----------------------------------------------------------------------------
+
+En un sistema de comunicaciones digital, es pr\'{a}ctica est\'{a}ndar
+normalizar la constelaci\'{o}n para que su potencia media sea la unidad.
+Para una constelaci\'{o}n 16-QAM rectangular con niveles $\{-3, -1, +1, +3\}$
+equip-robables en cada eje, la potencia media por eje es:
+
+\begin{equation}
+    P_{\text{eje}} = \frac{1}{4}\left((-3)^2 + (-1)^2 + (+1)^2 + (+3)^2\right)
+    = \frac{9 + 1 + 1 + 9}{4}
+    = 5
+    \label{eq:potencia_eje}
+\end{equation}
+
+La potencia total de la constelaci\'{o}n (suma de ambos ejes) es:
+
+\begin{equation}
+    P_{\text{total}} = 2 \times P_{\text{eje}} = 10
+    \label{eq:potencia_total}
+\end{equation}
+
+Para obtener potencia media unitaria ($E[|s|^2] = 1$), los niveles
+se dividen por $\sqrt{P_{\text{total}}} = \sqrt{10}$:
+
+\begin{equation}
+    d_k = \frac{a_k}{\sqrt{10}}, \qquad a_k \in \{-3, -1, +1, +3\}
+    \label{eq:normalizacion}
+\end{equation}
+
+Los valores normalizados y su representaci\'{o}n en punto fijo Q1.11
+($\text{valor entero} = \text{round}(d_k \times 2^{11})$) se resumen
+en la Tabla~\ref{tab:qam_levels}.
+
+\begin{table}[H]
+    \centering
+    \caption{Niveles 16-QAM normalizados y su cuantificaci\'{o}n en Q1.11.}
+    \label{tab:qam_levels}
+    \begin{tabular}{@{} c r r r r @{}}
+        \toprule
+        \textbf{Nivel} $a_k$ &
+        \textbf{Flotante} $d_k$ &
+        \textbf{Ideal} $d_k \!\times\! 2^{11}$ &
+        \textbf{Entero Q1.11} &
+        \textbf{Hex (12 bits)} \\
+        \midrule
+        $-3$ & $-0{,}948683$ & $-1942{,}90$ & $-1943$ & \texttt{0x869} \\
+        $-1$ & $-0{,}316228$ & $-647{,}63$  & $-648$  & \texttt{0xD78} \\
+        $+1$ & $+0{,}316228$ & $+647{,}63$  & $+648$  & \texttt{0x288} \\
+        $+3$ & $+0{,}948683$ & $+1942{,}90$ & $+1943$ & \texttt{0x797} \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+El error de cuantificaci\'{o}n m\'{a}ximo es:
+
+\begin{equation}
+    \epsilon_{\max} = \frac{|1943 - 1942{,}90|}{2^{11}}
+    = \frac{0{,}10}{2048}
+    \approx \num{4,88e-5}
+    \label{eq:quant_error}
+\end{equation}
+
+\noindent
+lo que supone un error relativo del $0{,}005\,\%$ respecto al nivel
+m\'{a}ximo de la constelaci\'{o}n, completamente despreciable.
+
+La implementaci\'{o}n RTL utiliza una funci\'{o}n combinacional
+\texttt{gray\_lut()} que recibe los 2~bits de un eje y devuelve la
+constante Q1.11 correspondiente, definida como par\'{a}metro en el paquete
+\texttt{gdsp\_pkg}:
+
+\begin{lstlisting}[caption={LUT Gray para un eje de la constelaci\'{o}n.},
+                   label={lst:gray_lut}]
+function automatic sample_t gray_lut(input logic [1:0] bits);
+    case (bits)
+        2'b00:   gray_lut = QAM_NEG3;   // -1943
+        2'b01:   gray_lut = QAM_NEG1;   //  -648
+        2'b11:   gray_lut = QAM_POS1;   //  +648
+        2'b10:   gray_lut = QAM_POS3;   // +1943
+        default: gray_lut = '0;
+    endcase
+endfunction
+\end{lstlisting}
+
+La salida del mapeador se registra (1 ciclo de latencia) para aislar
+el \textit{fanout} de la LUT del camino cr\'{\i}tico del filtro RRC aguas
+abajo.
+
+
+% ============================================================================
+\section{Filtro Root-Raised Cosine (RRC)}
+\label{sec:rrc_filter}
+% ============================================================================
+
+% ----------------------------------------------------------------------------
+\subsection{Par\'{a}metros del filtro}
+\label{subsec:rrc_params}
+% ----------------------------------------------------------------------------
+
+El filtro de conformaci\'{o}n espectral utilizado es un \textit{Root-Raised
+Cosine} (RRC), cuya respuesta al impulso en tiempo continuo viene dada
+por:
+
+\begin{equation}
+    h_{\text{RRC}}(t) =
+    \begin{cases}
+        \dfrac{1}{T_s}\left(1 + \alpha\left(\dfrac{4}{\pi} - 1\right)\right),
+        & t = 0 \\[1.2em]
+        \dfrac{\alpha}{T_s\sqrt{2}}\left[\left(1+\dfrac{2}{\pi}\right)
+        \sin\!\left(\dfrac{\pi}{4\alpha}\right)
+        + \left(1-\dfrac{2}{\pi}\right)
+        \cos\!\left(\dfrac{\pi}{4\alpha}\right)\right],
+        & t = \pm\dfrac{T_s}{4\alpha} \\[1.2em]
+        \dfrac{1}{T_s}\,\dfrac{\sin\!\bigl[\pi\frac{t}{T_s}(1-\alpha)\bigr]
+        + 4\alpha\frac{t}{T_s}\cos\!\bigl[\pi\frac{t}{T_s}(1+\alpha)\bigr]}
+        {\pi\frac{t}{T_s}\bigl[1-\bigl(4\alpha\frac{t}{T_s}\bigr)^2\bigr]},
+        & \text{resto}
+    \end{cases}
+    \label{eq:rrc_impulse}
+\end{equation}
+
+Los par\'{a}metros de dise\~{n}o seleccionados son:
+
+\begin{table}[H]
+    \centering
+    \caption{Par\'{a}metros de dise\~{n}o del filtro RRC.}
+    \label{tab:rrc_params}
+    \begin{tabular}{@{} l c l @{}}
+        \toprule
+        \textbf{Par\'{a}metro} & \textbf{Valor} & \textbf{Justificaci\'{o}n} \\
+        \midrule
+        N\'{u}mero de taps        & 33     & Impar (simetr\'{\i}a), compromiso
+                                              precisi\'{o}n/recursos \\
+        Factor de roll-off $\alpha$ & 0,25 & Est\'{a}ndar DVB-S2, exceso de
+                                              ancho de banda moderado \\
+        Muestras por s\'{\i}mbolo (SPS) & 4 & Cumple Nyquist ($f_s > 2f_{\text{sym}}$) \\
+        Coef. pico (tap central)  & $+922$ & $0{,}450195$ en Q1.11
+                                              ($< 0{,}5$, sin saturaci\'{o}n) \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+La simetr\'{\i}a de fase lineal del filtro ($h[n] = h[N-1-n]$) se verifica
+examinando los coeficientes generados:
+
+\begin{equation}
+    h[0] = h[32] = +18, \quad
+    h[1] = h[31] = +9, \quad
+    \ldots \quad
+    h[16] = +922 \;\text{(tap central)}
+    \label{eq:symmetry}
+\end{equation}
+
+Esta simetr\'{\i}a es una propiedad fundamental que garantiza un retardo
+de grupo constante de $(N-1)/2 = 16$ muestras para todas las frecuencias
+dentro de la banda de paso.
+
+% ----------------------------------------------------------------------------
+\subsection{Decisi\'{o}n de arquitectura: forma transpuesta}
+\label{subsec:transposed_form}
+% ----------------------------------------------------------------------------
+
+Para la implementaci\'{o}n hardware del filtro FIR se han evaluado tres
+arquitecturas cl\'{a}sicas:
+
+\paragraph{1. Forma directa.}
+En la forma directa, las muestras de entrada se almacenan en una l\'{\i}nea
+de retardo y se multiplican por los coeficientes. Los productos se
+acumulan mediante una cadena de sumadores. El problema principal es que
+el \textbf{camino cr\'{\i}tico} crece linealmente con el n\'{u}mero de
+taps, ya que la acumulaci\'{o}n es secuencial:
+
+\begin{equation}
+    t_{\text{cr\'{\i}tico}}^{\text{directa}} = t_{\text{mult}}
+    + (N-1) \cdot t_{\text{add}}
+    \label{eq:cp_direct}
+\end{equation}
+
+Para $N = 33$, esto resulta en 32 etapas de sumador en serie, haciendo
+muy dif\'{\i}cil cumplir el requisito de \textit{timing} a
+\SI{27}{\mega\hertz}.
+
+\paragraph{2. Arquitectura plegada (\textit{folded}).}
+La alternativa plegada reutiliza un \'{u}nico multiplicador en m\'{u}ltiples
+ciclos de reloj. Para 33~taps se necesitar\'{\i}an 33 multiplicaciones por
+muestra, lo que exige un reloj interno de:
+
+\begin{equation}
+    f_{\text{interno}} = N \times f_s = 33 \times \SI{27}{\mega\hertz}
+    = \SI{891}{\mega\hertz}
+    \label{eq:folded_clk}
+\end{equation}
+
+Esta frecuencia es inalcanzable para la familia GW1NR-9 (cuyo l\'{\i}mite
+pr\'{a}ctico se sit\'{u}a en torno a \SI{200}{\mega\hertz} para l\'{o}gica
+general), por lo que se descarta esta opci\'{o}n.
+
+\paragraph{3. Forma transpuesta (\textbf{selecci\'{o}n final}).}
+En la forma transpuesta, la estructura se invierte: cada etapa consiste
+en un multiplicador seguido de un sumador y un registro. El camino
+cr\'{\i}tico se reduce a \textbf{una \'{u}nica multiplicaci\'{o}n m\'{a}s
+una suma}:
+
+\begin{equation}
+    t_{\text{cr\'{\i}tico}}^{\text{transpuesta}} = t_{\text{mult}}
+    + t_{\text{add}}
+    \label{eq:cp_transposed}
+\end{equation}
+
+\noindent
+independientemente del n\'{u}mero de taps. Esta caracter\'{\i}stica la
+convierte en la arquitectura id\'{o}nea para implementaciones en FPGA con
+restricciones de frecuencia.
+
+Adem\'{a}s, la forma transpuesta se adapta naturalmente a los bloques DSP
+de Gowin: cada etapa mapea directamente sobre la primitiva
+\texttt{pREG + MULT9}, donde el registro post-multiplicador
+(\texttt{pREG}) absorbe la registraci\'{o}n de la etapa del \textit{pipeline}
+sin consumir LUTs adicionales.
+
+La ecuaci\'{o}n de recurrencia de la forma transpuesta para un filtro de
+$N$ taps es:
+
+\begin{equation}
+    \begin{cases}
+        p_k[n]   = x[n] \cdot h[k], & 0 \leq k \leq N-1 \\
+        r_{N-1}[n] = p_{N-1}[n] & \text{(\'{u}ltima etapa)} \\
+        r_k[n]   = p_k[n] + r_{k+1}[n-1], & 0 \leq k \leq N-2 \\
+        y[n]     = r_0[n-1] & \text{(salida)}
+    \end{cases}
+    \label{eq:transposed_eqs}
+\end{equation}
+
+\begin{figure}[H]
+    \centering
+    \begin{tikzpicture}[
+        mult/.style={circle, draw, minimum size=8mm, inner sep=0pt,
+                     font=\footnotesize},
+        add/.style={circle, draw, minimum size=6mm, inner sep=0pt,
+                    font=\scriptsize},
+        reg/.style={rectangle, draw, minimum width=8mm, minimum height=6mm,
+                    font=\footnotesize},
+        >=Stealth,
+        node distance=18mm and 15mm
+    ]
+        % Input
+        \node (xn) {$x[n]$};
+
+        % Stage 0
+        \node[mult, right=12mm of xn] (m0) {$\times$};
+        \node[below=3mm of m0, font=\scriptsize] {$h[0]$};
+        \node[add, right=of m0] (a0) {$+$};
+        \node[reg, right=of a0] (r0) {$z^{-1}$};
+
+        % Stage 1
+        \node[mult, right=25mm of r0] (m1) {$\times$};
+        \node[below=3mm of m1, font=\scriptsize] {$h[1]$};
+        \node[add, right=of m1] (a1) {$+$};
+        \node[reg, right=of a1] (r1) {$z^{-1}$};
+
+        % Dots
+        \node[right=15mm of r1, font=\Large] (dots) {$\cdots$};
+
+        % Stage N-1
+        \node[mult, right=15mm of dots] (mN) {$\times$};
+        \node[below=3mm of mN, font=\scriptsize] {$h[N\!-\!1]$};
+        \node[reg, right=15mm of mN] (rN) {$z^{-1}$};
+
+        % Output
+        \node[right=12mm of r0] (yn) {};
+        \node[above=2mm of r0, font=\footnotesize] {$y[n]$};
+
+        % Connections
+        \draw[->] (xn) -- (m0);
+        \draw[->] (m0) -- (a0);
+        \draw[->] (a0) -- (r0);
+        \draw[->] (r0.east) -- ++(5mm,0) node[right, font=\footnotesize]{$y[n]$};
+
+        % x[n] fan-out
+        \draw[->] (xn) |- ([yshift=12mm]m0.north) -| (m1);
+        \draw[->] ([yshift=12mm]m1.north) -| (mN);
+
+        % Backward connections (from register to adder)
+        \draw[->] (r1.west) -- (a0.east |- r1.west) -- (a0.east);
+        \draw[->] (rN.west) -- (a1.east |- rN.west) -- (a1.east);
+
+        % Stage N-1 direct
+        \draw[->] (mN) -- (rN);
+    \end{tikzpicture}
+    \caption{Arquitectura FIR en forma transpuesta. El camino cr\'{\i}tico
+             (l\'{\i}nea roja conceptual) es una \'{u}nica multiplicaci\'{o}n
+             m\'{a}s una suma, independientemente de $N$.}
+    \label{fig:transposed_fir}
+\end{figure}
+
+\paragraph{Presupuesto de recursos DSP.}
+La FPGA GW1NR-9 dispone de 20 bloques MULT9, que operan como 10~bloques
+MULT18 en modo acoplado. La multiplicaci\'{o}n de 12~bits firmados requiere
+MULT18, por lo que se dispone de un m\'{a}ximo de 10~multiplicadores
+hardware. Con 33~taps por canal y dos canales (I/Q), se necesitar\'{\i}an
+66~multiplicadores. El sintetizador de Gowin asigna las 10~unidades MULT18
+disponibles a las etapas con mayor contribuci\'{o}n (t\'{\i}picamente las
+taps centrales) y sintetiza las restantes como multiplicadores en l\'{o}gica
+\textit{fabric} (LUT). A \SI{27}{\mega\hertz}, los multiplicadores basados
+en LUT cumplen holgadamente el \textit{timing}.
+
+% ----------------------------------------------------------------------------
+\subsection{An\'{a}lisis de precisi\'{o}n: redondeo convergente}
+\label{subsec:convergent_rounding}
+% ----------------------------------------------------------------------------
+
+La operaci\'{o}n m\'{a}s delicada del filtro RRC es la
+\textbf{truncaci\'{o}n} del acumulador de 30~bits al formato de salida
+Q1.11 (12~bits). Una truncaci\'{o}n simple (descartar los bits menos
+significativos) introduce un sesgo sistem\'{a}tico negativo (\textit{bias}
+de DC) de valor medio $-\Delta/2 = -2^{-12}$, que se acumula a lo largo
+de la cadena de procesado y puede degradar el rendimiento del receptor.
+
+Para eliminar este sesgo se emplea \textbf{redondeo convergente}
+(\textit{Banker's rounding}, IEEE~754), que redondea al valor par
+m\'{a}s cercano cuando la fracci\'{o}n descartada es exactamente $0{,}5$:
+
+\begin{equation}
+    y = \lfloor x \rfloor +
+    \begin{cases}
+        1, & \text{si } r > 0{,}5 \\
+        1, & \text{si } r = 0{,}5 \;\text{y}\; \lfloor x \rfloor \;\text{es impar} \\
+        0, & \text{en otro caso}
+    \end{cases}
+    \label{eq:convergent_round}
+\end{equation}
+
+donde $r$ es la parte fraccionaria descartada. En la implementaci\'{o}n
+hardware, esta condici\'{o}n se codifica de forma eficiente mediante tres
+se\~{n}ales derivadas del acumulador \texttt{acc\_val}:
+
+\begin{table}[H]
+    \centering
+    \caption{Se\~{n}ales para el redondeo convergente.}
+    \label{tab:round_signals}
+    \begin{tabular}{@{} l c l @{}}
+        \toprule
+        \textbf{Se\~{n}al} & \textbf{Bits del acumulador} & \textbf{Significado} \\
+        \midrule
+        \texttt{round\_bit}  & \texttt{acc\_val[10]} & MSB de la parte descartada \\
+        \texttt{sticky}      & \texttt{|acc\_val[9:0]} & OR de los bits restantes \\
+        \texttt{lsb\_result} & \texttt{acc\_val[11]} & LSB del resultado truncado \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+La decisi\'{o}n de redondeo al alza se codifica como:
+
+\begin{equation}
+    \texttt{round\_up} = \texttt{round\_bit} \;\wedge\;
+    (\texttt{sticky} \;\vee\; \texttt{lsb\_result})
+    \label{eq:round_up}
+\end{equation}
+
+Esta expresi\'{o}n garantiza que:
+
+\begin{itemize}
+    \item Si la fracci\'{o}n descartada es $> 0{,}5$ (\texttt{round\_bit}~=~1
+          y \texttt{sticky}~=~1), se redondea al alza.
+    \item Si la fracci\'{o}n es exactamente $0{,}5$ (\texttt{round\_bit}~=~1
+          y \texttt{sticky}~=~0), se redondea al alza solo si el LSB del
+          resultado es 1 (n\'{u}mero impar), forzando el resultado a ser par.
+    \item Si la fracci\'{o}n es $< 0{,}5$ (\texttt{round\_bit}~=~0), se
+          trunca (redondeo a la baja).
+\end{itemize}
+
+La salida truncada y redondeada se obtiene como:
+
+\begin{equation}
+    \texttt{dout\_trunc} = \texttt{acc\_val}[22:11] + \texttt{round\_up}
+    \label{eq:trunc}
+\end{equation}
+
+donde los bits $[22:11]$ representan los 12~bits Q1.11 del producto
+acumulado Q2.22. Adicionalmente, se incorpora un circuito de
+\textbf{saturaci\'{o}n} que protege contra desbordamientos inesperados,
+limitando la salida a los extremos representables:
+
+\begin{equation}
+    y = \begin{cases}
+        +2047  & \text{si desbordamiento positivo (SAT\_POS)} \\
+        -2048  & \text{si desbordamiento negativo (SAT\_NEG)} \\
+        \texttt{dout\_trunc} & \text{en caso normal}
+    \end{cases}
+    \label{eq:saturation}
+\end{equation}
+
+Con coeficientes correctamente normalizados ($\sum|h[n]| < 1{,}0$), la
+saturaci\'{o}n nunca deber\'{\i}a activarse, pero su inclusi\'{o}n es una
+pr\'{a}ctica de dise\~{n}o \textit{senior} que proporciona robustez frente
+a errores de configuraci\'{o}n o condiciones de prueba an\'{o}malas.
+
+
+% ============================================================================
+\section{Integraci\'{o}n del Subsistema TX y \textit{Timing}}
+\label{sec:tx_integration}
+% ============================================================================
+
+% ----------------------------------------------------------------------------
+\subsection{Sobremuestreo por inserci\'{o}n de ceros}
+\label{subsec:upsampling}
+% ----------------------------------------------------------------------------
+
+El filtro RRC opera a la tasa de muestreo del sistema
+($f_s = \SI{27}{\mega\hertz}$), mientras que los s\'{\i}mbolos QAM se
+generan a la tasa de s\'{\i}mbolo
+($f_{\text{sym}} = f_s / \text{SPS} = \SI{6,75}{\mega\hertz}$). La
+conversi\'{o}n entre ambas tasas se realiza mediante un
+\textbf{sobremuestreo por inserci\'{o}n de ceros} con factor $L = 4$:
+
+\begin{equation}
+    x_{\text{up}}[n] =
+    \begin{cases}
+        s[n/L] & \text{si } n \bmod L = 0 \\
+        0      & \text{en otro caso}
+    \end{cases}
+    \label{eq:upsample}
+\end{equation}
+
+donde $s[k]$ es la secuencia de s\'{\i}mbolos y $x_{\text{up}}[n]$ es la
+secuencia sobremuestreada. Esta operaci\'{o}n crea un \textit{tren de
+impulsos} que, al ser filtrado por el FIR RRC, produce la forma de pulso
+RRC deseada.
+
+En la implementaci\'{o}n RTL (\texttt{tx\_top.sv}), el sobremuestreador
+utiliza una m\'{a}quina de estados con un contador \texttt{up\_cnt}:
+
+\begin{enumerate}
+    \item Cuando \texttt{sym\_valid} se activa, el valor del s\'{\i}mbolo
+          ($I$, $Q$) se presenta a la salida y el contador se inicializa a~1.
+    \item Durante los $\text{SPS} - 1 = 3$ ciclos siguientes, la salida
+          se fuerza a cero (\textit{zero-stuffing}).
+    \item El \texttt{up\_valid} permanece activo durante los 4~ciclos,
+          alimentando al filtro RRC con una muestra v\'{a}lida en cada
+          flanco de reloj.
+\end{enumerate}
+
+% ----------------------------------------------------------------------------
+\subsection{Cadena de latencia del subsistema TX}
+\label{subsec:tx_latency}
+% ----------------------------------------------------------------------------
+
+La latencia total del subsistema, desde la generaci\'{o}n de bits hasta la
+salida del filtro, se compone de:
+
+\begin{table}[H]
+    \centering
+    \caption{Desglose de latencia del subsistema TX.}
+    \label{tab:latency}
+    \begin{tabular}{@{} l c l @{}}
+        \toprule
+        \textbf{M\'{o}dulo} & \textbf{Latencia (ciclos)} & \textbf{Nota} \\
+        \midrule
+        \texttt{bit\_gen}       & 1 & Registro de salida \\
+        \texttt{qam16\_mapper}  & 1 & Registro de salida \\
+        \texttt{upsampler}      & 0 & Combinacional (integrado) \\
+        \texttt{rrc\_filter}    & 1 & Pipeline transpuesto \\
+        \midrule
+        \textbf{Total pipeline} & \textbf{3} & Latencia m\'{\i}nima \\
+        Retardo de grupo FIR    & 16 & $(N-1)/2 = 16$ muestras \\
+        \midrule
+        \textbf{Total efectivo} & \textbf{19} & $3 + 16$ muestras \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+En t\'{e}rminos temporales, a \SI{27}{\mega\hertz}:
+
+\begin{equation}
+    t_{\text{latencia}} = \frac{19}{\SI{27}{\mega\hertz}}
+    \approx \SI{0,704}{\micro\second}
+    \label{eq:latency_time}
+\end{equation}
+
+% ----------------------------------------------------------------------------
+\subsection{Generaci\'{o}n del \textit{strobe} de s\'{\i}mbolo}
+\label{subsec:sym_strobe}
+% ----------------------------------------------------------------------------
+
+La sincronizaci\'{o}n entre la tasa de s\'{\i}mbolo y la tasa de muestreo
+se gestiona mediante un contador m\'{o}dulo SPS implementado en
+\texttt{tx\_top}:
+
+\begin{lstlisting}[caption={Generador de \textit{strobe} de s\'{\i}mbolo.},
+                   label={lst:sym_strobe}]
+logic [$clog2(SPS)-1:0] sps_cnt;
+logic sym_strobe;
+
+always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+        sps_cnt    <= '0;
+        sym_strobe <= 1'b0;
+    end else if (en) begin
+        if (sps_cnt == SPS - 1) begin
+            sps_cnt    <= '0;
+            sym_strobe <= 1'b1;
+        end else begin
+            sps_cnt    <= sps_cnt + 1'b1;
+            sym_strobe <= 1'b0;
+        end
+    end
+end
+\end{lstlisting}
+
+Este \textit{strobe} de un ciclo de duraci\'{o}n se propaga como se\~{n}al
+de habilitaci\'{o}n (\texttt{en}) al generador de bits, garantizando que
+se produce un nuevo s\'{\i}mbolo de 4~bits exactamente cada $\text{SPS} = 4$
+ciclos de reloj.
+
+% ----------------------------------------------------------------------------
+\subsection{Uso de \texttt{gdsp\_pkg} para la mantenibilidad}
+\label{subsec:gdsp_pkg}
+% ----------------------------------------------------------------------------
+
+Todas las constantes, anchuras de bus, tipos y par\'{a}metros del sistema
+se centralizan en el paquete SystemVerilog \texttt{gdsp\_pkg.sv}. Esta
+decisi\'{o}n arquitect\'{o}nica, com\'{u}n en dise\~{n}os industriales,
+ofrece las siguientes ventajas:
+
+\begin{itemize}
+    \item \textbf{Coherencia}: un cambio en la anchura de palabra (por ejemplo,
+          migrar de Q1.11 a Q1.15) se propaga autom\'{a}ticamente a todos los
+          m\'{o}dulos mediante \texttt{import gdsp\_pkg::*}.
+    \item \textbf{Seguridad de tipos}: el uso de \texttt{typedef}
+          (\texttt{sample\_t}, \texttt{coeff\_t}, \texttt{product\_t},
+          \texttt{accum\_t}) previene errores de anchura de bus en la
+          instanciaci\'{o}n de m\'{o}dulos.
+    \item \textbf{Documentaci\'{o}n impl\'{\i}cita}: los nombres de los
+          par\'{a}metros (\texttt{FRAC\_BITS}, \texttt{NUM\_TAPS},
+          \texttt{SPS}) hacen el c\'{o}digo auto-documentado.
+    \item \textbf{Exploraci\'{o}n de dise\~{n}o}: facilita la exploraci\'{o}n
+          param\'{e}trica (por ejemplo, variar el n\'{u}mero de taps o el
+          factor SPS) sin modificar la l\'{o}gica de los m\'{o}dulos
+          individuales.
+\end{itemize}
+
+La Tabla~\ref{tab:pkg_types} resume los tipos definidos en el paquete y su
+correspondencia con la cadena de procesado.
+
+\begin{table}[H]
+    \centering
+    \caption{Tipos definidos en \texttt{gdsp\_pkg} y su uso en la cadena TX.}
+    \label{tab:pkg_types}
+    \begin{tabular}{@{} l c l @{}}
+        \toprule
+        \textbf{Tipo} & \textbf{Anchura} & \textbf{Uso} \\
+        \midrule
+        \texttt{sample\_t}  & 12 bits & Muestras I/Q (entrada/salida del filtro) \\
+        \texttt{coeff\_t}   & 12 bits & Coeficientes del filtro RRC \\
+        \texttt{product\_t} & 24 bits & Producto dato $\times$ coeficiente \\
+        \texttt{accum\_t}   & 30 bits & Acumulador del filtro FIR \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+
+% ============================================================================
+\section{S\'{\i}ntesis de decisiones de dise\~{n}o}
+\label{sec:design_decisions}
+% ============================================================================
+
+A modo de resumen, la Tabla~\ref{tab:decisions} recopila las decisiones de
+dise\~{n}o m\'{a}s relevantes del subsistema TX y la justificaci\'{o}n
+t\'{e}cnica de cada una.
+
+\begin{table}[H]
+    \centering
+    \caption{Resumen de decisiones de dise\~{n}o del subsistema TX.}
+    \label{tab:decisions}
+    \small
+    \begin{tabular}{@{} p{3.2cm} p{3.0cm} p{7.5cm} @{}}
+        \toprule
+        \textbf{Aspecto} & \textbf{Decisi\'{o}n} & \textbf{Justificaci\'{o}n} \\
+        \midrule
+        Formato num\'{e}rico &
+        Q1.11 (12 bits) &
+        SQNR de \SI{68}{\decibel}; niveles QAM dentro de rango;
+        compatible con MULT18 de Gowin. \\[0.5em]
+
+        Generador de bits &
+        PRBS-23 (ITU-T O.151) &
+        Secuencia normalizada, per\'{\i}odo $>8$ millones de bits,
+        repetibilidad para verificaci\'{o}n \textit{bit-true}. \\[0.5em]
+
+        Entrega paralela &
+        LFSR desenrollado $\times 4$ &
+        Evita latencia de acumulaci\'{o}n; 4 niveles de XOR (trivial
+        a \SI{27}{\mega\hertz}). \\[0.5em]
+
+        Mapeador QAM &
+        LUT Gray combinacional &
+        Minimiza BER; 1 ciclo de latencia; constantes centralizadas
+        en \texttt{gdsp\_pkg}. \\[0.5em]
+
+        Normalizaci\'{o}n &
+        $1/\sqrt{10}$ &
+        Potencia media unitaria; valores enteros exactos en Q1.11
+        ($\pm 1943$, $\pm 648$). \\[0.5em]
+
+        Arquitectura FIR &
+        Forma transpuesta &
+        Camino cr\'{\i}tico m\'{\i}nimo ($t_\text{mult} + t_\text{add}$);
+        mapeo directo a pREG+MULT9. \\[0.5em]
+
+        Truncaci\'{o}n &
+        Redondeo convergente &
+        Elimina sesgo de DC; implementaci\'{o}n en 3 se\~{n}ales
+        (round, sticky, LSB). \\[0.5em]
+
+        Sobremuestreo &
+        Inserci\'{o}n de ceros $\times 4$ &
+        M\'{e}todo est\'{a}ndar; m\'{a}quina de estados de 2 bits;
+        el FIR act\'{u}a como filtro anti-imagen. \\[0.5em]
+
+        Parametrizaci\'{o}n &
+        \texttt{gdsp\_pkg} centralizado &
+        Coherencia, seguridad de tipos, exploraci\'{o}n param\'{e}trica
+        sin modificar m\'{o}dulos. \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+
+% ============================================================================
+% Fin del documento
+% ============================================================================
+\end{document}
