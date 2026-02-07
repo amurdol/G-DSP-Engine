@@ -1,0 +1,6 @@
+# G-DSP Engine — Waveform dumps
+# VCD / FST waveform files from simulation go here.
+# This directory is git-ignored.
+*.vcd
+*.fst
+*.ghw

@@ -1,0 +1,35 @@
+// RRC α=0.25, 33 taps, SPS=4
+// Format: Q1.11 (12-bit signed), 33 values
+012
+009
+FF0
+FDB
+FE0
+005
+038
+051
+02E
+FD1
+F6D
+F55
+FC9
+0CD
+218
+32E
+39A
+32E
+218
+0CD
+FC9
+F55
+F6D
+FD1
+02E
+051
+038
+005
+FE0
+FDB
+FF0
+009
+012

@@ -1,0 +1,42 @@
+# ===========================================================================
+# G-DSP Engine .gitignore
+# ===========================================================================
+
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+
+# --- Simulation outputs ---
+sim/waves/*.vcd
+sim/waves/*.fst
+sim/waves/*.ghw
+
+# --- Gowin EDA ---
+impl/
+*.gprj.user
+*.log
+*.rpt
+*.sdf
+*.vo
+*.vg
+*.ncd
+*.ngd
+*.posp
+
+# --- Generated figures (reproducible) ---
+# Uncomment to track them in git:
+# docs/figures/*.png
+
+# --- OS ---
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# --- IDE ---
+.vscode/
+*.swp
+*~
