@@ -30,6 +30,7 @@ impl/
 # --- Generated figures (reproducible) ---
 # Uncomment to track them in git:
 # docs/figures/*.png
+docs/references
 
 # --- OS ---
 Thumbs.db
