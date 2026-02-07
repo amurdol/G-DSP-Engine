@@ -55,7 +55,25 @@ package gdsp_pkg;
     // ========================================================================
     parameter int BITS_PER_SYM  = 4;             // log2(16)
     parameter int SPS           = 4;             // Samples per symbol
-    parameter real ROLLOFF      = 0.25;          // RRC roll-off factor α
+    parameter real ROLLOFF      = 0.25;          // RRC roll-off factor
+
+    // 16-QAM normalised levels in Q1.11  (  {-3,-1,+1,+3} / sqrt(10)  )
+    //   -3/sqrt(10) = -0.948683 -> round(-0.948683 * 2048) = -1943
+    //   -1/sqrt(10) = -0.316228 -> round(-0.316228 * 2048) =  -648
+    //   +1/sqrt(10) = +0.316228 -> round(+0.316228 * 2048) =  +648
+    //   +3/sqrt(10) = +0.948683 -> round(+0.948683 * 2048) = +1943
+    parameter signed [DATA_WIDTH-1:0] QAM_NEG3 = -12'sd1943;  // 12'sh869
+    parameter signed [DATA_WIDTH-1:0] QAM_NEG1 = -12'sd648;   // 12'shD78
+    parameter signed [DATA_WIDTH-1:0] QAM_POS1 =  12'sd648;   // 12'sh288
+    parameter signed [DATA_WIDTH-1:0] QAM_POS3 =  12'sd1943;  // 12'sh797
+
+    // ========================================================================
+    // LFSR (PRBS-23) — bit generator
+    //   Polynomial: x^23 + x^18 + 1  (ITU-T O.151)
+    // ========================================================================
+    parameter int LFSR_WIDTH    = 23;
+    parameter int LFSR_TAP_A    = 23;            // MSB tap position
+    parameter int LFSR_TAP_B    = 18;            // Second tap position
 
     // ========================================================================
     // HDMI / Video

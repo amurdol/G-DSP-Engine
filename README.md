@@ -114,11 +114,11 @@ Outputs:
 
 | Phase | Description                              | Status       |
 |:-----:|------------------------------------------|:------------:|
-| **0** | Setup, Golden Model, Fixed-Point         | ✅ Complete   |
-| **1** | RTL: QAM Mapper + RRC FIR Filter         | 🔲 Planned   |
-| **2** | RTL: AWGN Channel + HDMI Video Pipeline  | 🔲 Planned   |
-| **3** | RTL: Gardner TED + Costas Loop           | 🔲 Planned   |
-| **4** | Integration, Timing Closure, Demo        | 🔲 Planned   |
+| **0** | Setup, Golden Model, Fixed-Point         | Done         |
+| **1** | RTL: QAM Mapper + RRC FIR Filter         | Done         |
+| **2** | RTL: AWGN Channel + HDMI Video Pipeline  | Planned      |
+| **3** | RTL: Gardner TED + Costas Loop           | Planned      |
+| **4** | Integration, Timing Closure, Demo        | Planned      |
 
 ## License
 
