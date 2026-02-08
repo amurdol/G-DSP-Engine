@@ -10,8 +10,10 @@
 G-DSP Engine is a fully hardware-implemented 16-QAM digital communications
 transceiver running on the **Sipeed Tang Nano 9K** (Gowin GW1NR-LV9).
 It performs modulation, pulse shaping, noise injection, matched filtering,
-timing/carrier recovery, and renders the IQ constellation in **720p @ 60 Hz
-over HDMI** — all in real time, with no soft-core CPU in the data path.
+symbol-timing recovery (Gardner TED) and carrier recovery (decision-directed
+Costas loop with dual gear-shifting), and renders the IQ constellation in
+**720p @ 60 Hz over HDMI** — all in real time, with no soft-core CPU in the
+data path.
 
 ## Architecture
 
@@ -133,6 +135,15 @@ iverilog -g2012 -I sim/vectors -o sim/out/tb_rrc_filter.vvp `
     rtl/modem/rrc_filter.sv `
     sim/tb/tb_rrc_filter.sv
 vvp sim/out/tb_rrc_filter.vvp
+
+# Example: RX Top (full chain with 5 kHz CFO stress test)
+iverilog -g2012 -I sim/vectors -o sim/out/tb_rx_top.vvp `
+    rtl/packages/gdsp_pkg.sv rtl/common/bit_gen.sv `
+    rtl/modem/qam16_mapper.sv rtl/modem/rrc_filter.sv rtl/modem/tx_top.sv `
+    rtl/channel/awgn_generator.sv rtl/channel/awgn_channel.sv `
+    rtl/sync/gardner_ted.sv rtl/sync/costas_loop.sv rtl/modem/rx_top.sv `
+    sim/tb/tb_rx_top.sv
+vvp sim/out/tb_rx_top.vvp
 ```
 
 #### Available testbenches
@@ -143,6 +154,7 @@ vvp sim/out/tb_rrc_filter.vvp
 | `tb_rrc_filter.sv`      | `rrc_filter`                    | Impulse response + 1024-sample vector vs Golden Model |
 | `tb_tx_top.sv`          | `bit_gen` → `mapper` → `rrc`   | End-to-end TX chain, symbol timing                    |
 | `tb_channel.sv`         | `awgn_channel`, `awgn_generator`| Noise sweep M=0…255, bypass, saturation statistics    |
+| `tb_rx_top.sv`          | Full TX→Channel→RX chain        | CFO stress test (5 kHz), NCO activity, ≥75% accuracy  |
 
 #### Prerequisites
 
@@ -168,7 +180,7 @@ vvp sim/out/tb_rrc_filter.vvp
 | **0** | Setup, Golden Model, Fixed-Point         | Done         |
 | **1** | RTL: QAM Mapper + RRC FIR Filter         | Done         |
 | **2** | RTL: AWGN Channel (CLT, N=16)            | Done         |
-| **3** | RTL: Gardner TED + Costas Loop           | Planned      |
+| **3** | RTL: Gardner TED + Costas Loop (DD-PLL)  | Done         |
 | **4** | Integration, Timing Closure, Demo        | Planned      |
 
 ## License
