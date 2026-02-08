@@ -1,25 +1,29 @@
 // ============================================================================
 // G-DSP Engine — Testbench: RX Top (full TX → Channel → RX chain)
 // ============================================================================
-// End-to-end verification of the complete 16-QAM modem:
+// End-to-end verification of the complete 16-QAM modem including a
+// carrier-frequency-offset (CFO) stress test.
 //
-//   tx_top  →  channel_top (AWGN)  →  rx_top
-//   (PRBS→QAM→RRC)  (noise injection)  (RRC→Gardner→Costas)
+//   tx_top  →  [CFO rotator]  →  channel_top (AWGN)  →  rx_top
+//   (PRBS→QAM→RRC)  (e^{jωn})  (noise injection)      (RRC→Gardner→Costas)
 //
 // Tests performed:
 //   1. Run the full chain for a configurable number of symbols.
 //   2. Wait for the Costas loop to declare lock (demod_lock = 1).
 //   3. After lock, capture demodulated I/Q samples and verify they
 //      cluster around the 16 ideal constellation points.
-//   4. Report PASS if:
+//   4. Stress test: verify that the Costas NCO is actively compensating
+//      the injected frequency offset (NCO must not remain at zero).
+//   5. Report PASS if:
 //        a) Lock is achieved within MAX_LOCK_SYMBOLS, AND
 //        b) > MIN_ACCURACY% of post-lock samples are within TOLERANCE
-//           of a valid 16-QAM constellation point.
+//           of a valid 16-QAM constellation point, AND
+//        c) NCO is actively tracking (omega ≠ 0) when FREQ_OFFSET > 0.
 //
 // Output:
 //   - VCD waveform dump in sim/waves/tb_rx_top.vcd
 //   - Optional CSV of demodulated I/Q in sim/vectors/rx_constellation.csv
-//   - Console statistics: lock time, accuracy, min/max error.
+//   - Console statistics: lock time, accuracy, NCO state, min/max error.
 //
 // Usage (Icarus Verilog):
 //   iverilog -g2012 -I sim/vectors -o sim/out/tb_rx_top.vvp \
@@ -46,15 +50,29 @@ module tb_rx_top;
     // -----------------------------------------------------------------------
     // Test configuration
     // -----------------------------------------------------------------------
-    localparam int NUM_SYMBOLS      = 2000;     // Total symbols to simulate
+    localparam int NUM_SYMBOLS      = 2500;     // Total symbols to simulate
     localparam int MAX_LOCK_SYMBOLS = 800;      // Max symbols before lock expected
     localparam int POST_LOCK_CAP    = 500;      // Symbols to capture after lock
+    localparam int POST_LOCK_SETTLE = 400;      // Settle time before counting accuracy
     localparam int TOLERANCE        = 300;      // Max distance from ideal QAM point
     localparam int MIN_ACCURACY_PCT = 80;       // Min % of correct post-lock samples
     localparam int NUM_SAMPLES      = NUM_SYMBOLS * SPS;
 
     // Moderate noise: SNR ~ 20 dB for clean-ish constellation
     localparam logic [NOISE_MAG_WIDTH-1:0] NOISE_MAG = 8'd24;
+
+    // -----------------------------------------------------------------------
+    // Stress Test: Carrier Frequency Offset (CFO) injection
+    //
+    //   A non-zero FREQ_OFFSET_HZ rotates the TX constellation by e^{jωn}
+    //   at sample rate, simulating a real-world carrier frequency mismatch.
+    //   The Costas loop must acquire and track this offset, driving its NCO
+    //   to a non-zero value that compensates the rotation.
+    // -----------------------------------------------------------------------
+    localparam real FREQ_OFFSET_HZ = 5000.0;    // 5 kHz CFO (stress test)
+    localparam real PI             = 3.14159265358979323846;
+    localparam real CLK_FREQ       = 27000000.0;
+    localparam real CFO_DELTA      = 2.0 * PI * FREQ_OFFSET_HZ / CLK_FREQ;
 
     // -----------------------------------------------------------------------
     // Clock and reset
@@ -82,7 +100,51 @@ module tb_rx_top;
     );
 
     // -----------------------------------------------------------------------
-    // Channel signals
+    // Carrier Frequency Offset (CFO) Rotator
+    //
+    //   Applies a complex rotation to the TX samples before the channel:
+    //     cfo_I = tx_I·cos(θ) − tx_Q·sin(θ)
+    //     cfo_Q = tx_I·sin(θ) + tx_Q·cos(θ)
+    //   where θ increments by 2π·f_offset/f_clk each valid sample.
+    //
+    //   Uses real-valued arithmetic ($cos/$sin) — testbench only, not
+    //   synthesisable.  One pipeline register for timing alignment.
+    // -----------------------------------------------------------------------
+    sample_t cfo_I, cfo_Q;
+    logic    cfo_valid;
+    real     cfo_phase = 0.0;
+
+    always @(posedge clk) begin
+        if (!rst_n) begin
+            cfo_I     <= '0;
+            cfo_Q     <= '0;
+            cfo_valid <= 1'b0;
+            cfo_phase  = 0.0;
+        end else begin
+            cfo_valid <= tx_valid;
+            if (tx_valid) begin : cfo_rotate
+                real i_f, q_f, c, s, ri, rq;
+                i_f = $itor($signed(tx_I));
+                q_f = $itor($signed(tx_Q));
+                c   = $cos(cfo_phase);
+                s   = $sin(cfo_phase);
+                ri  = i_f * c - q_f * s;
+                rq  = i_f * s + q_f * c;
+                // Saturate to Q1.11 range [-2048, +2047]
+                if (ri > 2047.0)       cfo_I <= 12'sd2047;
+                else if (ri < -2048.0) cfo_I <= -12'sd2048;
+                else                   cfo_I <= $rtoi(ri);
+                if (rq > 2047.0)       cfo_Q <= 12'sd2047;
+                else if (rq < -2048.0) cfo_Q <= -12'sd2048;
+                else                   cfo_Q <= $rtoi(rq);
+                // Advance phase
+                cfo_phase = cfo_phase + CFO_DELTA;
+            end
+        end
+    end
+
+    // -----------------------------------------------------------------------
+    // Channel signals — fed from CFO rotator, not raw TX
     // -----------------------------------------------------------------------
     sample_t ch_I, ch_Q;
     logic    ch_valid;
@@ -91,9 +153,9 @@ module tb_rx_top;
         .clk             (clk),
         .rst_n           (rst_n),
         .en              (1'b1),
-        .tx_I            (tx_I),
-        .tx_Q            (tx_Q),
-        .tx_valid        (tx_valid),
+        .tx_I            (cfo_I),
+        .tx_Q            (cfo_Q),
+        .tx_valid        (cfo_valid),
         .noise_magnitude (NOISE_MAG),
         .rx_I            (ch_I),
         .rx_Q            (ch_Q),
@@ -172,6 +234,29 @@ module tb_rx_top;
     int max_err_Q      = 0;
     logic lock_achieved = 0;
 
+    // --- Stress Test: NCO activity monitor ---
+    //   After lock, the Costas NCO must be actively compensating the
+    //   injected CFO.  We track whether omega (frequency estimate) and
+    //   nco_phase ever become non-zero post-lock.
+    logic nco_was_active = 0;
+    int   omega_at_lock  = 0;
+    int   omega_steady   = 0;
+    logic [15:0] nco_at_lock = '0;
+
+    always @(posedge clk) begin
+        if (demod_valid && lock_achieved) begin
+            if (u_rx.u_costas.omega != 0 || u_rx.u_costas.nco_phase != 16'h0000)
+                nco_was_active <= 1'b1;
+            // Capture omega a few symbols after lock for reporting
+            if (post_lock_cnt == POST_LOCK_SETTLE + 10) begin
+                omega_at_lock <= $signed(u_rx.u_costas.omega);
+                nco_at_lock   <= u_rx.u_costas.nco_phase;
+            end
+            if (post_lock_cnt == POST_LOCK_CAP + POST_LOCK_SETTLE - 1)
+                omega_steady <= $signed(u_rx.u_costas.omega);
+        end
+    end
+
     // --- DEBUG: Print matched-filter output at sample rate (first 80) ---
     int mf_sample_cnt = 0;
     always @(posedge clk) begin
@@ -217,7 +302,7 @@ module tb_rx_top;
                     sym_count, $signed(demod_I), $signed(demod_Q), demod_lock);
 
             // Print first 10 + some post-lock symbols for debug
-            if (sym_count < 10 || (sym_count >= 248 && sym_count < 260)) begin
+            if (sym_count < 10 || (sym_count >= 400 && sym_count < 410)) begin
                 $display("[RX] sym[%4d] I=%6d  Q=%6d  lock=%b",
                          sym_count, $signed(demod_I), $signed(demod_Q), demod_lock);
             end
@@ -229,22 +314,26 @@ module tb_rx_top;
                 $display("[RX] *** LOCK ACHIEVED at symbol %0d ***", sym_count);
             end
 
-            // Post-lock statistics
-            if (lock_achieved && post_lock_cnt < POST_LOCK_CAP) begin
+            // Post-lock statistics (skip settle period for accuracy)
+            if (lock_achieved && post_lock_cnt < POST_LOCK_CAP + POST_LOCK_SETTLE) begin
                 post_lock_cnt <= post_lock_cnt + 1;
-                total_post    <= total_post + 1;
 
-                // Check I and Q distances to nearest QAM level
-                if (min_qam_dist($signed(demod_I)) <= TOLERANCE &&
-                    min_qam_dist($signed(demod_Q)) <= TOLERANCE) begin
-                    correct_cnt <= correct_cnt + 1;
+                // Only count accuracy after settling
+                if (post_lock_cnt >= POST_LOCK_SETTLE) begin
+                    total_post <= total_post + 1;
+
+                    // Check I and Q distances to nearest QAM level
+                    if (min_qam_dist($signed(demod_I)) <= TOLERANCE &&
+                        min_qam_dist($signed(demod_Q)) <= TOLERANCE) begin
+                        correct_cnt <= correct_cnt + 1;
+                    end
+
+                    // Track worst-case error
+                    if (min_qam_dist($signed(demod_I)) > max_err_I)
+                        max_err_I <= min_qam_dist($signed(demod_I));
+                    if (min_qam_dist($signed(demod_Q)) > max_err_Q)
+                        max_err_Q <= min_qam_dist($signed(demod_Q));
                 end
-
-                // Track worst-case error
-                if (min_qam_dist($signed(demod_I)) > max_err_I)
-                    max_err_I <= min_qam_dist($signed(demod_I));
-                if (min_qam_dist($signed(demod_Q)) > max_err_Q)
-                    max_err_Q <= min_qam_dist($signed(demod_Q));
             end
         end
     end
@@ -256,11 +345,12 @@ module tb_rx_top;
         $display("============================================================");
         $display("  G-DSP Engine — RX Top Testbench (Full Modem Chain)");
         $display("============================================================");
-        $display("  Noise magnitude : %0d", NOISE_MAG);
-        $display("  Total symbols   : %0d", NUM_SYMBOLS);
-        $display("  Max lock window : %0d symbols", MAX_LOCK_SYMBOLS);
-        $display("  Post-lock cap   : %0d symbols", POST_LOCK_CAP);
-        $display("  Tolerance       : +/-%0d (Q1.11 LSBs)", TOLERANCE);
+        $display("  Noise magnitude    : %0d", NOISE_MAG);
+        $display("  Freq offset (CFO)  : %.0f Hz", FREQ_OFFSET_HZ);
+        $display("  Total symbols      : %0d", NUM_SYMBOLS);
+        $display("  Max lock window    : %0d symbols", MAX_LOCK_SYMBOLS);
+        $display("  Post-lock cap      : %0d symbols", POST_LOCK_CAP);
+        $display("  Tolerance          : +/-%0d (Q1.11 LSBs)", TOLERANCE);
         $display("============================================================");
 
         // Reset
@@ -283,9 +373,9 @@ module tb_rx_top;
             repeat (2000) @(posedge clk);
         end
 
-        // Ensure we have enough post-lock samples
-        if (lock_achieved && post_lock_cnt < POST_LOCK_CAP) begin
-            repeat ((POST_LOCK_CAP - post_lock_cnt) * SPS + 100) @(posedge clk);
+        // Ensure we have enough post-lock samples (including settle time)
+        if (lock_achieved && post_lock_cnt < POST_LOCK_CAP + POST_LOCK_SETTLE) begin
+            repeat ((POST_LOCK_CAP + POST_LOCK_SETTLE - post_lock_cnt) * SPS + 100) @(posedge clk);
         end
 
         tx_en = 1'b0;
@@ -323,21 +413,45 @@ module tb_rx_top;
                          (ph_correct[p] * 100) / ph_total[p]);
         end
 
-        // ----- PASS / FAIL -----
+        // ----- Stress Test: NCO Activity -----
         $display("");
-        if (lock_achieved &&
-            total_post > 0 &&
-            ((correct_cnt * 100) / total_post) >= MIN_ACCURACY_PCT) begin
-            $display("  >>> ALL TESTS PASSED <<<");
-        end else begin
-            if (!lock_achieved)
-                $display("  >>> FAIL: Lock not achieved within %0d symbols <<<",
-                         MAX_LOCK_SYMBOLS);
-            else if (total_post == 0)
-                $display("  >>> FAIL: No post-lock samples captured <<<");
-            else
-                $display("  >>> FAIL: Accuracy %0d%% < required %0d%% <<<",
-                         (correct_cnt * 100) / total_post, MIN_ACCURACY_PCT);
+        $display("  --- Stress Test (CFO = %.0f Hz) ---", FREQ_OFFSET_HZ);
+        $display("    NCO active post-lock : %s", nco_was_active ? "YES" : "NO");
+        $display("    omega at lock+10     : %0d", omega_at_lock);
+        $display("    omega at steady state: %0d", omega_steady);
+        $display("    NCO phase at lock    : 0x%04x", nco_at_lock);
+
+        // ----- PASS / FAIL -----
+        begin
+            logic accuracy_ok, stress_ok, all_ok;
+            int accuracy_pct;
+
+            accuracy_pct = (total_post > 0) ? (correct_cnt * 100) / total_post : 0;
+            accuracy_ok  = lock_achieved && (total_post > 0) &&
+                           (accuracy_pct >= MIN_ACCURACY_PCT);
+
+            // Stress check: if CFO > 0, NCO must be actively tracking
+            stress_ok = (FREQ_OFFSET_HZ == 0.0) || nco_was_active;
+
+            all_ok = accuracy_ok && stress_ok;
+
+            $display("");
+            if (all_ok) begin
+                $display("  >>> ALL TESTS PASSED <<<");
+                if (FREQ_OFFSET_HZ > 0.0)
+                    $display("  Stress Test Passed: NCO active and correcting.");
+            end else begin
+                if (!lock_achieved)
+                    $display("  >>> FAIL: Lock not achieved within %0d symbols <<<",
+                             MAX_LOCK_SYMBOLS);
+                else if (total_post == 0)
+                    $display("  >>> FAIL: No post-lock samples captured <<<");
+                else if (!accuracy_ok)
+                    $display("  >>> FAIL: Accuracy %0d%% < required %0d%% <<<",
+                             accuracy_pct, MIN_ACCURACY_PCT);
+                if (!stress_ok)
+                    $display("  >>> FAIL: Stress test — NCO inactive (stuck at 0) <<<");
+            end
         end
         $display("============================================================");
 

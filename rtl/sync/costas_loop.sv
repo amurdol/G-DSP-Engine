@@ -63,13 +63,24 @@ module costas_loop
     localparam int NCO_W = 16;          // Phase accumulator width
 
     // Loop filter gains (shift-based)
-    //   Conservative gains to prevent quantization-bias drift in
-    //   synchronous systems while still tracking real phase offsets.
-    localparam int KP_SHIFT = 6;        // Kp ≈ 1/64
-    localparam int KI_SHIFT = 14;       // Ki ≈ 1/16384  (near-zero freq tracking)
+    //   Kp controls proportional (instantaneous phase correction).
+    //   Ki uses gear shifting: aggressive during acquisition for fast
+    //   pull-in (KI_SHIFT_ACQ), then conservative during tracking to
+    //   prevent noise-driven drift (KI_SHIFT_TRK).
+    //   Gear shifting (dual Kp/Ki) for robust acquisition + tracking:
+    //     Acquisition : weak Kp, strong Ki  → integrator dominates,
+    //                   converges omega to freq offset without Kp stealing error.
+    //     Tracking    : strong Kp, frozen Ki → fast phase fine-tuning,
+    //                   omega stays locked at the acquired value.
+    localparam int KP_SHIFT_ACQ = 8;     // Acquisition Kp ≈ 1/256 (weak)
+    localparam int KP_SHIFT_TRK = 3;     // Tracking   Kp ≈ 1/8   (strong)
+    localparam int KI_SHIFT_ACQ = 7;     // Acquisition Ki ≈ 1/128  (active)
+    localparam int KI_SHIFT_TRK = 12;    // Tracking   Ki ≈ 1/4096 (frozen)
+    localparam int GEAR_SHIFT_SYM = 200; // Switch after 200 symbols
 
-    // Dead zone: ignore errors below this threshold (quantization noise)
-    localparam int DEAD_ZONE = 40;
+    // Dead zone: integrator ignores errors below this threshold.
+    //   Prevents quantisation noise from accumulating into omega.
+    localparam int DEAD_ZONE = 50;
 
     // Lock detector
     localparam int LOCK_AVG_SHIFT = 6;  // Averaging time constant ~64 symbols
@@ -324,15 +335,30 @@ module costas_loop
     wire                     costas_active = (costas_holdcnt >= COSTAS_HOLDOFF[7:0]);
     wire  signed [NCO_W-1:0] err_ext  = NCO_W'($signed(phase_err));
 
-    // Truncate-toward-zero: avoids negative bias from Verilog's arithmetic
-    // right shift (>>>), which rounds toward −∞.  Without this fix,
-    //   −69 >>> 6 = −2  but  +69 >>> 6 = +1
-    // creating a persistent negative bias in omega that causes NCO drift.
-    wire  signed [NCO_W-1:0] kp_term  = (err_ext >= 0) ? (err_ext >>> KP_SHIFT)
-                                                        : -((-err_ext) >>> KP_SHIFT);
-    wire  signed [NCO_W-1:0] ki_term  = (err_ext >= 0) ? (err_ext >>> KI_SHIFT)
-                                                        : -((-err_ext) >>> KI_SHIFT);
-    wire  signed [NCO_W-1:0] omega_next = omega + ki_term;
+    // Truncate-toward-zero helper: avoids negative bias from Verilog’s
+    // arithmetic right shift (>>>), which rounds toward −∞.
+    //   −69 >>> 6 = −2  but  +69 >>> 6 = +1  (biased)
+    //   truncz(−69,6) = −1, truncz(+69,6) = +1  (symmetric)
+
+    // Gear-shifted Kp and Ki with truncation-toward-zero.
+    //   Two fixed-shift paths selected by a symbol-count comparator.
+    //   Synthesises to a pair of 2:1 muxes per bit — negligible LUT cost.
+    wire gear_tracking = (costas_holdcnt >= GEAR_SHIFT_SYM[7:0]);
+
+    // Proportional (Kp)
+    wire signed [NCO_W-1:0] kp_acq = (err_ext >= 0) ? (err_ext >>> KP_SHIFT_ACQ)
+                                                     : -((-err_ext) >>> KP_SHIFT_ACQ);
+    wire signed [NCO_W-1:0] kp_trk = (err_ext >= 0) ? (err_ext >>> KP_SHIFT_TRK)
+                                                     : -((-err_ext) >>> KP_SHIFT_TRK);
+    wire signed [NCO_W-1:0] kp_term = gear_tracking ? kp_trk : kp_acq;
+
+    // Integrator (Ki) — already gear-shifted via gear_tracking above
+    wire signed [NCO_W-1:0] ki_acq = (err_ext >= 0) ? (err_ext >>> KI_SHIFT_ACQ)
+                                                     : -((-err_ext) >>> KI_SHIFT_ACQ);
+    wire signed [NCO_W-1:0] ki_trk = (err_ext >= 0) ? (err_ext >>> KI_SHIFT_TRK)
+                                                     : -((-err_ext) >>> KI_SHIFT_TRK);
+    wire signed [NCO_W-1:0] ki_term   = gear_tracking ? ki_trk : ki_acq;
+    wire signed [NCO_W-1:0] omega_next = omega + ki_term;
 
     // Output register
     sample_t demod_I_r, demod_Q_r;
@@ -358,18 +384,23 @@ module costas_loop
                 if (costas_holdcnt < 8'd255)
                     costas_holdcnt <= costas_holdcnt + 1'b1;
 
-                // Only update NCO after holdoff and outside dead zone
-                if (costas_active && err_abs > DEAD_ZONE[DATA_WIDTH-1:0]) begin
-                    // Update frequency integrator with anti-windup
-                    if (omega_next > FREQ_BOUND)
-                        omega <= FREQ_BOUND;
-                    else if (omega_next < -FREQ_BOUND)
-                        omega <= -FREQ_BOUND;
-                    else
-                        omega <= omega_next;
-
-                    // Update NCO phase: θ += ω + Kp·e
+                // After holdoff: NCO always updates (proportional + freq est.)
+                // Dead zone gates ONLY the frequency integrator to prevent
+                // quantisation-noise-driven drift while allowing the
+                // proportional path to respond to ALL phase errors.
+                if (costas_active) begin
+                    // NCO phase: θ += ω + Kp·e  (always active)
                     nco_phase <= nco_phase + NCO_W'(omega) + NCO_W'(kp_term);
+
+                    // Frequency integrator: only for large errors
+                    if (err_abs > DEAD_ZONE[DATA_WIDTH-1:0]) begin
+                        if (omega_next > FREQ_BOUND)
+                            omega <= FREQ_BOUND;
+                        else if (omega_next < -FREQ_BOUND)
+                            omega <= -FREQ_BOUND;
+                        else
+                            omega <= omega_next;
+                    end
                 end
             end
         end

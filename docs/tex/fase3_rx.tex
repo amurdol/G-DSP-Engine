@@ -1,0 +1,650 @@
+% !TEX root = fase3_rx.tex
+% ============================================================================
+% G-DSP Engine --- Documentaci\'{o}n T\'{e}cnica: Fase 3
+% Implementaci\'{o}n del Subsistema de Recepci\'{o}n (RX)
+% ============================================================================
+% Compilar:  pdflatex fase3_rx.tex  (x2 para referencias)
+% ============================================================================
+
+\documentclass[a4paper,11pt,spanish]{article}
+
+% ---------------------------------------------------------------------------
+% Paquetes
+% ---------------------------------------------------------------------------
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish,es-tabla]{babel}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{siunitx}
+\usepackage{hyperref}
+\usepackage{geometry}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, calc, shapes.geometric, decorations.pathreplacing}
+
+\geometry{margin=2.5cm}
+
+\sisetup{
+    output-decimal-marker = {,},
+    per-mode = symbol
+}
+
+% ---------------------------------------------------------------------------
+% Configuraci\'{o}n de listings para SystemVerilog
+% ---------------------------------------------------------------------------
+\lstdefinelanguage{SystemVerilog}{
+    morekeywords={module, endmodule, input, output, logic, signed, parameter,
+                  int, always_ff, always_comb, posedge, negedge, if, else,
+                  begin, end, for, case, endcase, function, automatic,
+                  endfunction, localparam, assign, typedef, package,
+                  endpackage, import, default, generate, endgenerate, wire},
+    sensitive=true,
+    morecomment=[l]{//},
+    morecomment=[s]{/*}{*/},
+    morestring=[b]",
+}
+
+\lstset{
+    language=SystemVerilog,
+    basicstyle=\ttfamily\footnotesize,
+    keywordstyle=\bfseries\color{blue!70!black},
+    commentstyle=\itshape\color{green!50!black},
+    stringstyle=\color{red!60!black},
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    numbersep=5pt,
+    frame=single,
+    breaklines=true,
+    captionpos=b,
+    tabsize=4,
+    showstringspaces=false,
+}
+
+% ---------------------------------------------------------------------------
+% Datos del documento
+% ---------------------------------------------------------------------------
+\title{%
+    \textbf{G-DSP Engine} \\[0.5em]
+    \Large Implementaci\'{o}n del Subsistema de Recepci\'{o}n \\[0.3em]
+    \large Fase~3 --- Documentaci\'{o}n T\'{e}cnica del TFG
+}
+\author{G-DSP Team}
+\date{Febrero 2026}
+
+% ============================================================================
+\begin{document}
+% ============================================================================
+
+\maketitle
+\tableofcontents
+\newpage
+
+% ============================================================================
+\section{Introducci\'{o}n al Subsistema de Recepci\'{o}n}
+\label{sec:intro_rx}
+% ============================================================================
+
+El subsistema de recepci\'{o}n (RX) del procesador banda base G-DSP Engine
+constituye la tercera fase funcional del m\'{o}dem 16-QAM, completando la
+cadena de comunicaciones implementada sobre la FPGA Gowin
+GW1NR-LV9QN88PC6/I5 (Tang Nano~9K).  Su funci\'{o}n es recuperar los
+s\'{\i}mbolos transmitidos a partir de las muestras ruidosas entregadas por
+el modelo de canal AWGN (Fase~2), resolviendo simult\'{a}neamente la
+sincronizaci\'{o}n de tiempo de s\'{\i}mbolo y la recuperaci\'{o}n de fase
+de portadora.
+
+La cadena de recepci\'{o}n implementada sigue la arquitectura canónica
+de un receptor QAM coherente:
+
+\begin{equation}
+    r_{I,Q}[n]
+    \;\xrightarrow{\;}\;
+    \text{FIR RRC (MF)}
+    \;\xrightarrow{\;}\;
+    \text{Gardner TED}
+    \;\xrightarrow{\;1\,\text{sym}}\;
+    \text{Costas DD-PLL}
+    \;\xrightarrow{\;}\;
+    \hat{I},\hat{Q}
+    \label{eq:rx_chain}
+\end{equation}
+
+Los m\'{o}dulos RTL que materializan esta cadena son:
+
+\begin{enumerate}[label=\textbf{\arabic*.}]
+    \item \texttt{rrc\_filter} $\times 2$ --- Filtro acoplado (matched filter)
+          para los canales~I y~Q.
+    \item \texttt{gardner\_ted} --- Recuperaci\'{o}n de temporizaci\'{o}n
+          con NCO e interpolaci\'{o}n lineal.
+    \item \texttt{costas\_loop} --- Recuperaci\'{o}n de portadora mediante
+          lazo de fase dirigido por decisiones (DD-PLL) para 16-QAM.
+    \item \texttt{rx\_top} --- M\'{o}dulo de integraci\'{o}n que conecta
+          los tres bloques anteriores.
+\end{enumerate}
+
+
+% ============================================================================
+\section{Arquitectura del Receptor}
+\label{sec:arch}
+% ============================================================================
+
+La Figura~\ref{fig:rx_block} muestra el diagrama de bloques del
+subsistema de recepci\'{o}n.  La se\~{n}al de entrada proviene del
+modelo de canal AWGN a tasa de muestreo ($f_s = \SI{27}{\mega\hertz}$,
+4 muestras por s\'{\i}mbolo), y la salida son los s\'{\i}mbolos
+demodulados a tasa de s\'{\i}mbolo ($f_\text{sym} = \SI{6,75}{\mega\hertz}$)
+junto con un indicador de enganche (\texttt{demod\_lock}).
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    block/.style={draw, minimum width=2.4cm, minimum height=1.4cm,
+                  align=center, rounded corners=2pt, fill=blue!8},
+    arr/.style={-{Stealth[length=6pt]}, thick},
+    label/.style={font=\scriptsize, midway, above}
+]
+    % Bloques
+    \node[block] (mf)  at (0,0)    {Filtro\\Acoplado\\(RRC)};
+    \node[block] (ted) at (4.2,0)  {Gardner\\TED};
+    \node[block] (cos) at (8.4,0)  {Costas\\DD-PLL};
+
+    % Sub-bloques del Costas
+    \node[font=\tiny, below=0pt of cos] {(NCO + LUT sin/cos)};
+
+    % Entradas
+    \draw[arr] (-2.3, 0.3) -- node[label] {$r_I[n]$} (mf.west |- 0,0.3);
+    \draw[arr] (-2.3,-0.3) -- node[label,below] {$r_Q[n]$} (mf.west |- 0,-0.3);
+
+    % Conexiones
+    \draw[arr] (mf) -- node[label] {$\times$SPS} (ted);
+    \draw[arr] (ted) -- node[label] {$1\times$sym} (cos);
+
+    % Salidas
+    \draw[arr] (cos.east |- 0,0.3) -- ++(1.8,0)
+        node[right, font=\small] {$\hat{I},\hat{Q}$};
+    \draw[arr] (cos.east |- 0,-0.3) -- ++(1.8,0)
+        node[right, font=\small] {\texttt{lock}};
+
+    % Retroalimentación Gardner
+    \draw[arr, dashed, red!60!black]
+        (ted.south) -- ++(0,-0.6) -| node[pos=0.25, below, font=\tiny]
+        {ajuste NCO} (mf.south);
+
+    % Anotaciones de tasa
+    \node[font=\tiny, color=gray] at (0, -1.4) {tasa de muestra};
+    \node[font=\tiny, color=gray] at (4.2, -1.0) {$\downarrow$4};
+    \node[font=\tiny, color=gray] at (8.4, -1.4) {tasa de s\'{\i}mbolo};
+\end{tikzpicture}
+\caption{Diagrama de bloques del subsistema de recepci\'{o}n.  El filtro
+acoplado opera a $f_s$; el Gardner TED decima a tasa de s\'{\i}mbolo;
+el lazo de Costas corrige fase y frecuencia residual.}
+\label{fig:rx_block}
+\end{figure}
+
+
+% ============================================================================
+\section{Filtro Acoplado (Matched Filter)}
+\label{sec:mf}
+% ============================================================================
+
+El filtro acoplado del receptor reutiliza el mismo m\'{o}dulo
+\texttt{rrc\_filter} empleado en el transmisor (Fase~1), con coeficientes
+RRC de longitud $L = 33$ taps y factor de \emph{roll-off} $\alpha = 0{,}25$.
+Se instancian dos copias id\'{e}nticas, una para cada canal (I~y~Q).
+
+\subsection{Justificaci\'{o}n}
+
+En un sistema con conformaci\'{o}n de pulso \emph{split Nyquist}, la
+cascada de los filtros RRC de transmisi\'{o}n y recepci\'{o}n produce una
+respuesta total de coseno alzado (\emph{raised cosine}), que satisface el
+primer criterio de Nyquist para interferencia intersimb\'{o}lica (ISI)
+nula en los instantes \'{o}ptimos de muestreo:
+
+\begin{equation}
+    h_\text{RC}[n] = h_\text{RRC}[n] * h_\text{RRC}[n],
+    \qquad
+    h_\text{RC}[kT_s] = \begin{cases}
+        1 & k = 0 \\
+        0 & k \neq 0
+    \end{cases}
+    \label{eq:nyquist}
+\end{equation}
+
+Adem\'{a}s, el filtro acoplado maximiza la relaci\'{o}n se\~{n}al a ruido
+(SNR) a la salida, propiedad fundamental para la detecci\'{o}n \'{o}ptima
+en canales AWGN~\cite{haykin2014}.
+
+\subsection{Compensaci\'{o}n de ganancia}
+
+La cascada de dos filtros RRC discretos produce una ganancia de pico
+$\|h_\text{RRC}\|^2 \approx 0{,}7095$ en lugar de la unidad te\'{o}rica
+(debido a la discretizaci\'{o}n y truncamiento de los coeficientes a Q1.11).
+Para restaurar los niveles de constelaci\'{o}n QAM a escala completa, el
+m\'{o}dulo \texttt{rx\_top} aplica una etapa de compensaci\'{o}n de ganancia:
+
+\begin{equation}
+    y_\text{comp} = y_\text{MF} \times \frac{1443}{1024}
+    \approx y_\text{MF} \times 1{,}4094
+    \approx \frac{y_\text{MF}}{0{,}7095}
+    \label{eq:gain_comp}
+\end{equation}
+
+Esta multiplicaci\'{o}n emplea 2~multiplicadores DSP adicionales (uno por
+canal) a tasa de muestra.
+
+
+% ============================================================================
+\section{Recuperaci\'{o}n de Temporizaci\'{o}n --- Gardner TED}
+\label{sec:gardner}
+% ============================================================================
+
+La recuperaci\'{o}n de temporizaci\'{o}n (\emph{timing recovery}) es
+necesaria para identificar los instantes \'{o}ptimos de muestreo dentro
+de cada per\'{\i}odo de s\'{\i}mbolo.  El m\'{o}dulo \texttt{gardner\_ted}
+implementa el algoritmo de Gardner, un detector de error de temporizaci\'{o}n
+\emph{non-data-aided} (NDA) que no requiere decisiones previas del
+demodulador~\cite{gardner1986}.
+
+\subsection{Algoritmo}
+
+El error de temporizaci\'{o}n de Gardner para los canales I y Q se calcula
+como:
+
+\begin{equation}
+    e[n] = \bigl(I[n{-}1] - I[n]\bigr) \cdot I_\text{mid}
+         + \bigl(Q[n{-}1] - Q[n]\bigr) \cdot Q_\text{mid}
+    \label{eq:gardner_err}
+\end{equation}
+
+donde $I[n]$,~$Q[n]$ son las muestras \emph{prompt} (instante \'{o}ptimo
+actual), $I[n{-}1]$,~$Q[n{-}1]$ son los prompts del s\'{\i}mbolo
+anterior, e $I_\text{mid}$,~$Q_\text{mid}$ son las muestras en el punto
+medio entre ambos prompts.
+
+La propiedad fundamental de este detector es que su valor esperado es
+cero cuando el muestreo est\'{a} perfectamente alineado ($e[n] = 0$ en
+media), y tiene un gradiente que permite al lazo de control converger al
+instante \'{o}ptimo.
+
+\subsection{NCO de temporizaci\'{o}n}
+
+El control de fase temporal se implementa mediante un oscilador controlado
+num\'{e}ricamente (NCO) de 16~bits.  El acumulador de fase se incrementa
+por un paso nominal $\Delta\phi = 2^{16}/\text{SPS} = 16384$ en cada
+muestra v\'{a}lida.  Cuando el acumulador desborda (bit~16), se genera un
+pulso \texttt{sym\_strobe} que indica el instante \'{o}ptimo de muestreo.
+
+El filtro de lazo PI ajusta el paso del NCO:
+
+\begin{equation}
+    \Delta\phi_\text{adj} = \Delta\phi_\text{nom}
+        - K_p \cdot e[n]
+        - K_i \cdot \sum_{k} e[k]
+    \label{eq:ted_loop}
+\end{equation}
+
+con $K_p = 2^{-8}$ y $K_i = 2^{-16}$ (ganancias conservadoras
+implementadas como desplazamientos aritm\'{e}ticos).
+
+\subsection{Interpolaci\'{o}n lineal}
+
+Para obtener la muestra \emph{prompt} en el instante exacto indicado
+por el NCO (que generalmente no coincide con una muestra real), se emplea
+un interpolador lineal:
+
+\begin{equation}
+    y(\mu) = x_\text{curr} + \mu \cdot (x_\text{prev} - x_\text{curr}),
+    \qquad
+    \mu = \frac{\text{NCO}_\text{overshoot}}{2^{14}}
+    \label{eq:interp}
+\end{equation}
+
+donde $\mu \in [0, 1)$ es la fracci\'{o}n de muestra derivada de los bits
+inferiores del acumulador NCO.
+
+\paragraph{Justificaci\'{o}n del interpolador lineal.}
+La Tang Nano~9K dispone de 20~multiplicadores DSP de
+$9 \times 9$~bits.  La interpolaci\'{o}n lineal requiere solo
+2~multiplicadores (uno por canal I/Q) para el producto
+$\mu \times (x_\text{prev} - x_\text{curr})$, frente a los
+6--8~multiplicadores que precisar\'{\i}a un interpolador c\'{u}bico o de
+Farrow.  Dado que el error de interpolaci\'{o}n lineal afecta
+principalmente a las componentes de alta frecuencia (atenuadas por el
+filtro RRC con $\alpha = 0{,}25$), la degradaci\'{o}n de rendimiento es
+insignificante para nuestra aplicaci\'{o}n.
+
+
+% ============================================================================
+\section{Recuperaci\'{o}n de Portadora --- Costas Loop 16-QAM}
+\label{sec:costas}
+% ============================================================================
+
+La recuperaci\'{o}n de portadora corrige cualquier desfase de fase y/o
+frecuencia residual entre el transmisor y el receptor.  El m\'{o}dulo
+\texttt{costas\_loop} implementa un lazo de fase enganchada (\emph{PLL})
+dirigido por decisiones (\emph{Decision-Directed}, DD), adaptado
+espec\'{\i}ficamente para 16-QAM.
+
+\subsection{Limitaci\'{o}n del Costas cl\'{a}sico con 16-QAM}
+\label{sec:costas_clasico}
+
+El detector de fase del lazo de Costas
+cl\'{a}sico, utilizado habitualmente en BPSK y QPSK, calcula el error como:
+
+\begin{equation}
+    e_\text{QPSK} = Q \cdot \text{sgn}(I) - I \cdot \text{sgn}(Q)
+    \label{eq:costas_qpsk}
+\end{equation}
+
+Este detector asume que la se\~{n}al solo tiene \emph{dos niveles por eje}
+($\pm 1$).  En 16-QAM, con \emph{cuatro niveles por eje}
+($\pm 1, \pm 3$ normalizados), el detector cl\'{a}sico falla porque:
+
+\begin{itemize}
+    \item Los s\'{\i}mbolos del anillo interior ($\pm 1/\!\sqrt{10}$)
+          producen un gradiente de error \emph{ambiguo} respecto a los
+          del anillo exterior ($\pm 3/\!\sqrt{10}$).
+    \item La funci\'{o}n de error resultante (curva~S) presenta ceros
+          espurios que impiden la convergencia del lazo.
+\end{itemize}
+
+\subsection{Soluci\'{o}n implementada: detector dirigido por decisiones}
+
+En lugar del \texttt{sgn()}, se utiliza la salida del \emph{decisor duro}
+(slicer) de 16-QAM para generar el error de fase mediante el producto
+cruzado:
+
+\begin{equation}
+    e_\text{DD}[n] = \text{rot}_I \cdot \hat{Q} - \text{rot}_Q \cdot \hat{I}
+    \label{eq:dd_error}
+\end{equation}
+
+donde $\text{rot}_{I,Q}$ son las muestras tras la rotaci\'{o}n del NCO,
+y $\hat{I}$, $\hat{Q}$ son los niveles QAM m\'{a}s cercanos determinados
+por las decisiones del slicer (umbral en $(\lvert\text{QAM}_{+1}\rvert
++ \lvert\text{QAM}_{+3}\rvert)/2 = 1296$ en Q1.11).
+
+Este detector genera una curva~S correcta con ceros estables a $0\degree$,
+$90\degree$, $180\degree$ y $270\degree$, y funciona para cualquier
+constelaci\'{o}n QAM rectangular.
+
+\subsection{Rotador de fase (NCO + LUT sin/cos)}
+
+La rotaci\'{o}n de la constelaci\'{o}n se implementa mediante el producto
+complejo:
+
+\begin{align}
+    \text{rot}_I &= \text{sym}_I \cdot \cos\theta - \text{sym}_Q \cdot \sin\theta \\
+    \text{rot}_Q &= \text{sym}_I \cdot \sin\theta + \text{sym}_Q \cdot \cos\theta
+    \label{eq:rotator}
+\end{align}
+
+donde $\theta$ es la fase acumulada del NCO de 16~bits.
+
+\paragraph{LUT de cuarto de onda vs. CORDIC.}
+Los valores de $\cos\theta$ y $\sin\theta$ se obtienen de una LUT de
+cuarto de onda de 65~entradas en Q1.11, con plegado de cuadrante
+(\emph{quadrant folding}) sobre los 2~bits superiores de la fase. Esta
+implementaci\'{o}n se eligi\'{o} frente al algoritmo CORDIC por las
+siguientes razones:
+
+\begin{enumerate}
+    \item \textbf{Uso eficiente de DSP:} La LUT produce valores
+          $\sin/\cos$ en un ciclo de reloj, y las 4~multiplicaciones del
+          rotador se realizan en multiplicadores DSP dedicados.
+          La Tang Nano~9K dispone de 20~multiplicadores de $9\times 9$~bits
+          (encadenables a $18\times 18$) que, en su mayor\'{\i}a, quedan
+          sin usar despu\'{e}s del filtro FIR.  Aprovechar estos
+          multiplicadores para el rotador ahorra l\'{o}gica combinacional
+          (LUTs) frente a la cadena de sumas y desplazamientos del CORDIC.
+    \item \textbf{Latencia reducida:} El rotador basado en LUT requiere
+          solo 1--2~ciclos de \emph{pipeline}, mientras que un CORDIC de
+          12~bits necesitar\'{\i}a 12~iteraciones (o un \emph{pipeline}
+          de 12~etapas).
+    \item \textbf{Memoria m\'{\i}nima:} $65 \times 12 = 780$~bits
+          de LUT, distribuibles en l\'{o}gica sin consumir bloques BSRAM.
+\end{enumerate}
+
+\subsection{Filtro de lazo PI con \emph{gear shifting}}
+\label{sec:loop_filter}
+
+El filtro de lazo es de tipo~II (proporcional + integral), con ganancias
+implementadas como desplazamientos aritm\'{e}ticos para evitar
+multiplicadores adicionales.  Se emplea una t\'{e}cnica de
+\emph{gear shifting}~\cite{meyr1997} que utiliza ganancias diferentes
+durante la adquisici\'{o}n y el seguimiento:
+
+\begin{table}[H]
+\centering
+\caption{Ganancias del filtro de lazo (dual \emph{gear shifting}).}
+\label{tab:loop_gains}
+\begin{tabular}{lccl}
+\toprule
+\textbf{Par\'{a}metro} & \textbf{Adquisici\'{o}n} & \textbf{Seguimiento}
+    & \textbf{Raz\'{o}n} \\
+\midrule
+$K_p$ & $2^{-8} \approx 1/256$ & $2^{-3} \approx 1/8$
+    & Fase: d\'{e}bil$\to$fuerte \\
+$K_i$ & $2^{-7} \approx 1/128$ & $2^{-12} \approx 1/4096$
+    & Frecuencia: fuerte$\to$congelado \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Durante la \textbf{adquisici\'{o}n} (primeros 200~s\'{\i}mbolos), el
+integrador de frecuencia ($\omega$) domina con un $K_i$ elevado, permitiendo
+que $\omega$ converja al offset de frecuencia real.  $K_p$ es d\'{e}bil
+para no <<robar>> error de fase al integrador.
+
+% After acquisition
+Tras la \textbf{conmutaci\'{o}n} a modo de seguimiento, $K_i$ se reduce
+drásticamente (el integrador queda pr\'{a}cticamente congelado al valor
+adquirido), mientras que $K_p$ se incrementa para
+corregir r\'{a}pidamente el residuo de fase resultante de la
+cuantizaci\'{o}n entera de $\omega$.
+
+Las ecuaciones de actualizaci\'{o}n del NCO son:
+
+\begin{align}
+    \omega[n+1] &= \omega[n] + K_i \cdot e[n]
+        & & \text{(solo si } |e[n]| > \text{DEAD\_ZONE)} \\
+    \theta[n+1] &= \theta[n] + \omega[n] + K_p \cdot e[n]
+        & & \text{(siempre activo tras \emph{holdoff})}
+    \label{eq:nco_update}
+\end{align}
+
+\paragraph{Zona muerta.}
+El integrador emplea una zona muerta
+($|\,e\,| > 50$~LSBs) para evitar que el ruido de cuantizaci\'{o}n acumule
+una desviaci\'{o}n sistem\'{a}tica en $\omega$.  La ruta proporcional
+opera \emph{sin} zona muerta (los errores peque\~{n}os se truncan
+naturalmente a $K_p \cdot e = 0$).
+
+\paragraph{Correcci\'{o}n de truncamiento asim\'{e}trico.}
+El desplazamiento aritm\'{e}tico a la derecha (\texttt{>>>}) en Verilog
+redondea hacia $-\infty$, lo que introduce un sesgo negativo:
+$-69 \ggg 6 = -2$ pero $+69 \ggg 6 = +1$.  Para evitar la
+deriva permanente del NCO, se implementa un truncamiento sim\'{e}trico
+hacia cero:
+
+\begin{equation}
+    \text{trunc}(x, s) = \begin{cases}
+        x \ggg s & x \geq 0 \\
+        -((-x) \ggg s) & x < 0
+    \end{cases}
+    \label{eq:trunc_zero}
+\end{equation}
+
+\subsection{Detector de enganche}
+\label{sec:lock_det}
+
+El detector de enganche calcula una media m\'{o}vil exponencial (EMA) del
+valor absoluto del error de fase:
+
+\begin{equation}
+    \bar{e}[n] = \bar{e}[n{-}1]
+        + \frac{|e[n]| - \bar{e}[n{-}1]}{2^6}
+    \label{eq:ema}
+\end{equation}
+
+Se declara enganche (\texttt{demod\_lock}~$= 1$) cuando
+$\bar{e} < 150$ y han transcurrido al menos 100~s\'{\i}mbolos
+(\emph{holdoff} para evitar falsos enganches durante el transitorio
+inicial).
+
+
+% ============================================================================
+\section{Presupuesto de Recursos DSP}
+\label{sec:dsp_budget}
+% ============================================================================
+
+La Tabla~\ref{tab:dsp} resume la asignaci\'{o}n de multiplicadores DSP
+del subsistema~RX.  Todos operan a tasa de s\'{\i}mbolo
+($\SI{6,75}{\mega\hertz}$) excepto los del filtro acoplado y la
+compensaci\'{o}n de ganancia, que operan a tasa de muestra
+($\SI{27}{\mega\hertz}$).
+
+\begin{table}[H]
+\centering
+\caption{Multiplicadores DSP utilizados por el subsistema~RX.}
+\label{tab:dsp}
+\begin{tabular}{lccl}
+\toprule
+\textbf{M\'{o}dulo} & \textbf{Mults.} & \textbf{Tasa} & \textbf{Operaci\'{o}n} \\
+\midrule
+Filtro RRC (I)            & $\leq 5$ & muestra & MAC FIR (33 taps, doblado)\\
+Filtro RRC (Q)            & $\leq 5$ & muestra & MAC FIR \\
+Compensaci\'{o}n ganancia &     2    & muestra & $y \times 1443$ \\
+Interpolador Gardner      &     2    & s\'{\i}mbolo & $\mu \times \Delta x$ \\
+Error Gardner             &     2    & s\'{\i}mbolo & $(I_\text{prev}-I)\cdot I_\text{mid}$ \\
+Rotador Costas            &     4    & s\'{\i}mbolo & $I\cos$, $Q\sin$, etc. \\
+Error Costas DD           &     2    & s\'{\i}mbolo & $I \hat{Q} - Q \hat{I}$ \\
+\midrule
+\textbf{Total RX}         &  $\leq$\textbf{22} & & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Dado que los multiplicadores de tasa de s\'{\i}mbolo pueden compartirse
+temporalmente con los de tasa de muestra (mediante \emph{time-division
+multiplexing}), el consumo efectivo se mantiene dentro de los
+20~bloques DSP disponibles en la GW1NR-9.
+
+
+% ============================================================================
+\section{Resultados de Verificaci\'{o}n}
+\label{sec:results}
+% ============================================================================
+
+\subsection{Prueba funcional b\'{a}sica}
+
+La primera validaci\'{o}n ejecuta la cadena completa
+TX$\to$Canal$\to$RX sin offset de frecuencia (escenario ideal).
+Con ruido AWGN ($M = 24$, SNR~$\approx \SI{20}{\decibel}$):
+
+\begin{itemize}
+    \item Enganche alcanzado en el s\'{\i}mbolo~205.
+    \item Precisi\'{o}n post-enganche: 100\,\% (500/500 s\'{\i}mbolos
+          dentro de tolerancia $\pm 300$~LSBs).
+    \item Error m\'{a}ximo I/Q: 176/153~LSBs.
+    \item NCO estable en \texttt{0x0000} (sin offset, no se requiere
+          correcci\'{o}n).
+\end{itemize}
+
+\subsection{Prueba de estr\'{e}s con offset de frecuencia}
+\label{sec:stress}
+
+Para validar que el lazo de Costas puede adquirir y seguir un offset de
+frecuencia real, se inyecta una rotaci\'{o}n compleja a la salida del
+transmisor:
+
+\begin{equation}
+    r_\text{rot}[n] = r_\text{TX}[n] \cdot e^{j\,2\pi f_\Delta n/f_s}
+    \label{eq:cfo}
+\end{equation}
+
+con $f_\Delta = \SI{5}{\kilo\hertz}$, equivalente a una rotaci\'{o}n de
+$\approx 0{,}27\degree$ por s\'{\i}mbolo.
+
+Resultados de la prueba de estr\'{e}s (AWGN $M=24$ + CFO
+$\SI{5}{\kilo\hertz}$):
+
+\begin{itemize}
+    \item Enganche alcanzado en el s\'{\i}mbolo~326.
+    \item Precisi\'{o}n post-enganche: 81\,\% (407/500), por encima del
+          umbral m\'{\i}nimo del 80\,\%.
+    \item $\omega$ (estimaci\'{o}n de frecuencia del integrador):
+          converge a $-48$ unidades NCO/s\'{\i}mbolo, consistente con el
+          valor te\'{o}rico
+          $\omega_\text{ideal} = f_\Delta \cdot \text{SPS} \cdot 2^{16}
+          / f_s \approx -48{,}6$.
+    \item NCO activo: la fase del NCO rota continuamente para compensar
+          el offset inyectado.
+    \item \textbf{Veredicto: \texttt{Stress Test Passed: NCO active and
+          correcting.}}
+\end{itemize}
+
+La precisi\'{o}n del 81\,\% (frente al 100\,\% sin CFO) se debe a la
+cuantizaci\'{o}n entera de $\omega$: el valor $-48$ difiere del ideal
+$-48{,}6$ en $\approx 1{,}2\,\%$, generando un peque\~{n}o residuo de
+fase oscilante que la ruta proporcional corrige de forma c\'{\i}clica.
+Este efecto es inherente a un NCO de 16~bits y podr\'{\i}a eliminarse
+aumentando la anchura del acumulador a 24--32~bits, como se realiza en
+implementaciones comerciales.
+
+
+% ============================================================================
+\section{Conclusiones de la Fase~3}
+\label{sec:conclusions}
+% ============================================================================
+
+Se ha implementado y verificado el subsistema de recepci\'{o}n completo
+del m\'{o}dem 16-QAM G-DSP Engine.  Los principales logros son:
+
+\begin{enumerate}
+    \item \textbf{Filtro acoplado:} Reutilizaci\'{o}n del m\'{o}dulo
+          RRC existente con compensaci\'{o}n de ganancia calibrada.
+    \item \textbf{Gardner TED:} Recuperaci\'{o}n de temporizaci\'{o}n
+          NDA con interpolaci\'{o}n lineal, optimizada para los recursos
+          limitados de la Tang Nano~9K.
+    \item \textbf{Costas DD-PLL:} Recuperaci\'{o}n de portadora
+          adaptada a 16-QAM, con LUT de cuarto de onda, lazo PI con
+          \emph{gear shifting}, truncamiento sim\'{e}trico y detector
+          de enganche.
+    \item \textbf{Verificaci\'{o}n:} Prueba funcional (100\,\% de
+          precisi\'{o}n sin CFO) y prueba de estr\'{e}s (81\,\% con
+          $\SI{5}{\kilo\hertz}$ de offset) superadas satisfactoriamente,
+          demostrando que el NCO responde activamente para compensar
+          la rotaci\'{o}n inyectada.
+\end{enumerate}
+
+
+% ============================================================================
+% Referencias
+% ============================================================================
+\begin{thebibliography}{9}
+
+\bibitem{haykin2014}
+S.~Haykin, \emph{Communication Systems}, 5th ed. Hoboken, NJ: Wiley, 2014.
+
+\bibitem{gardner1986}
+F.~M.~Gardner, ``A BPSK/QPSK timing-error detector for sampled
+receivers,'' \emph{IEEE Trans.\ Commun.}, vol.~COM-34, no.~5,
+pp.~423--429, May~1986.
+
+\bibitem{meyr1997}
+H.~Meyr, M.~Moeneclaey, and S.~A.~Fechtel, \emph{Digital Communication
+Receivers: Synchronization, Channel Estimation, and Signal Processing}.
+New York: Wiley, 1997.
+
+\end{thebibliography}
+
+\end{document}
