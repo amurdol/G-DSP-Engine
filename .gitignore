@@ -26,7 +26,8 @@ env/
 sim/out/
 
 # --- Gowin EDA ---
-impl/
+gowin/**/impl/
+gowin/**/temp/
 *.gprj.user
 *.log
 *.rpt
@@ -51,13 +52,8 @@ impl/
 *.lof
 *.lot
 
-# --- Generated figures (reproducible from golden_model.py) ---
-# Uncomment to track them in git:
-# docs/figures/*.png
+# --- Generated (reproducible) ---
 docs/references/
-
-# --- OS ---
-Thumbs.db
 .DS_Store
 desktop.ini
 
