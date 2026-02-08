@@ -33,35 +33,24 @@ IO_PORT "led[4]" IO_TYPE=LVCMOS18 DRIVE=8;
 IO_PORT "led[5]" IO_TYPE=LVCMOS18 DRIVE=8;
 
 // --- HDMI (TMDS differential pairs) ---
-IO_LOC  "tmds_clk_p" 69;
-IO_LOC  "tmds_clk_n" 68;
-IO_LOC  "tmds_data_p[0]" 71;
-IO_LOC  "tmds_data_n[0]" 70;
-IO_LOC  "tmds_data_p[1]" 73;
-IO_LOC  "tmds_data_n[1]" 72;
-IO_LOC  "tmds_data_p[2]" 75;
-IO_LOC  "tmds_data_n[2]" 74;
-IO_PORT "tmds_clk_p"     IO_TYPE=LVCMOS33D DRIVE=8;
-IO_PORT "tmds_clk_n"     IO_TYPE=LVCMOS33D DRIVE=8;
-IO_PORT "tmds_data_p[0]" IO_TYPE=LVCMOS33D DRIVE=8;
-IO_PORT "tmds_data_n[0]" IO_TYPE=LVCMOS33D DRIVE=8;
-IO_PORT "tmds_data_p[1]" IO_TYPE=LVCMOS33D DRIVE=8;
-IO_PORT "tmds_data_n[1]" IO_TYPE=LVCMOS33D DRIVE=8;
-IO_PORT "tmds_data_p[2]" IO_TYPE=LVCMOS33D DRIVE=8;
-IO_PORT "tmds_data_n[2]" IO_TYPE=LVCMOS33D DRIVE=8;
+// Requires TLVDS_OBUF primitives in RTL. Enabled in Phase 4.
+// For LVCMOS33D, only constrain the _p pin; Gowin auto-pairs the _n.
+// IO_LOC  "tmds_clk_p" 69;
+// IO_LOC  "tmds_data_p[0]" 71;
+// IO_LOC  "tmds_data_p[1]" 73;
+// IO_LOC  "tmds_data_p[2]" 75;
+// IO_PORT "tmds_clk_p"     IO_TYPE=LVCMOS33D DRIVE=8;
+// IO_PORT "tmds_data_p[0]" IO_TYPE=LVCMOS33D DRIVE=8;
+// IO_PORT "tmds_data_p[1]" IO_TYPE=LVCMOS33D DRIVE=8;
+// IO_PORT "tmds_data_p[2]" IO_TYPE=LVCMOS33D DRIVE=8;
 
-// --- PSRAM (HyperRAM — directly wired on Tang Nano 9K) ---
-// Directly connected to FPGA, no external components.
-// Active in Phase 4 when PSRAM controller is implemented.
-IO_LOC  "psram_ce_n"   48;
-IO_LOC  "psram_sclk"   47;
-IO_LOC  "psram_sio[0]" 44;
-IO_LOC  "psram_sio[1]" 46;
-IO_LOC  "psram_sio[2]" 45;
-IO_LOC  "psram_sio[3]" 43;
-IO_PORT "psram_ce_n"   IO_TYPE=LVCMOS33 DRIVE=8;
-IO_PORT "psram_sclk"   IO_TYPE=LVCMOS33 DRIVE=8;
-IO_PORT "psram_sio[0]" IO_TYPE=LVCMOS33 DRIVE=8;
-IO_PORT "psram_sio[1]" IO_TYPE=LVCMOS33 DRIVE=8;
-IO_PORT "psram_sio[2]" IO_TYPE=LVCMOS33 DRIVE=8;
-IO_PORT "psram_sio[3]" IO_TYPE=LVCMOS33 DRIVE=8;
+// --- PSRAM (HyperRAM — internal to GW1NR-9 package) ---
+// The PSRAM die is bonded inside the GW1NR SiP. Access is via Gowin's
+// dedicated PSRAM IP primitive (EG_PHY_PSRAM), not through regular I/O pins.
+// No pin constraints needed here — handled in Phase 4 with the IP core.
+// IO_LOC  "psram_ce_n"   (internal);
+// IO_LOC  "psram_sclk"   (internal);
+// IO_LOC  "psram_sio[0]" (internal);
+// IO_LOC  "psram_sio[1]" (internal);
+// IO_LOC  "psram_sio[2]" (internal);
+// IO_LOC  "psram_sio[3]" (internal);
