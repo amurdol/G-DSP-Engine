@@ -74,6 +74,7 @@ package gdsp_pkg;
     parameter int LFSR_WIDTH    = 23;
     parameter int LFSR_TAP_A    = 23;            // MSB tap position
     parameter int LFSR_TAP_B    = 18;            // Second tap position
+    parameter [LFSR_WIDTH-1:0] LFSR_SEED = 23'h7F_FFFF;  // All-ones seed
 
     // ========================================================================
     // AWGN Channel — Noise Generator

@@ -24,9 +24,8 @@ module bit_gen
 
     // -----------------------------------------------------------------------
     // LFSR register — 23 bits, seed must be non-zero
+    // Seed comes from gdsp_pkg::LFSR_SEED
     // -----------------------------------------------------------------------
-    localparam [LFSR_WIDTH-1:0] SEED = 23'h7F_FFFF;  // All-ones seed
-
     logic [LFSR_WIDTH-1:0] lfsr_r;
     logic [BITS_PER_SYM-1:0] bits_r;
     logic valid_r;
@@ -65,7 +64,7 @@ module bit_gen
     // -----------------------------------------------------------------------
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            lfsr_r  <= SEED;
+            lfsr_r  <= LFSR_SEED;
             bits_r  <= '0;
             valid_r <= 1'b0;
         end else begin
