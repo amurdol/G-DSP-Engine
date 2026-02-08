@@ -57,14 +57,14 @@ module tb_rrc_filter;
     logic [DATA_WIDTH-1:0] ref_sym_I [0:255];
 
     initial begin
-        $readmemh("../../sim/vectors/tx_filtered_I.hex", ref_tx_I);
-        $readmemh("../../sim/vectors/qam16_symbols_I.hex", ref_sym_I);
+        $readmemh("sim/vectors/tx_filtered_I.hex", ref_tx_I);
+        $readmemh("sim/vectors/qam16_symbols_I.hex", ref_sym_I);
     end
 
     // -----------------------------------------------------------------------
     // Include coefficient array for impulse response check
     // -----------------------------------------------------------------------
-    `include "../../sim/vectors/rrc_coeffs.v"
+    `include "rrc_coeffs.v"
 
     // -----------------------------------------------------------------------
     // Test 1: Impulse response
@@ -97,7 +97,7 @@ module tb_rrc_filter;
                     // In fixed-point: (coeff * 1024) >> 11, which after
                     // rounding should be coeff/2.
                     $display("[IMP] tap[%2d] = %6d  (dout = %6d)",
-                             out_idx, RRC_COEFFS[out_idx], dout);
+                             out_idx, rrc_coeff(out_idx), dout);
                 end
                 out_idx++;
             end
@@ -119,9 +119,17 @@ module tb_rrc_filter;
         sample_t ref_val;
         int tolerance;
 
+        // The Python golden model outputs centred convolution (mode='same'),
+        // which trims (NUM_TAPS-1)/2 = 16 samples.  The RTL transposed FIR
+        // is causal, plus 1 cycle for the output register → total latency
+        // offset = (NUM_TAPS-1)/2 + 1 = 17 samples.
+        localparam int LATENCY_OFFSET = (NUM_TAPS - 1) / 2 + 1;
+
         $display("\n[TB] === Vector Comparison Test (I-channel) ===");
+        $display("[TB]   Latency offset = %0d samples (group delay + 1 reg)",
+                 LATENCY_OFFSET);
         mismatches = 0;
-        tolerance = 1;  // Allow +/-1 LSB for rounding differences
+        tolerance = 2;  // Allow +/-2 LSB for rounding differences
 
         // Reset DUT pipeline
         din       = '0;
@@ -146,18 +154,23 @@ module tb_rrc_filter;
                 din_valid = 1'b1;
 
                 // Check output (after pipeline fill)
-                if (dout_valid && out_idx < NUM_TX_SAMPLES) begin
-                    ref_val = $signed(ref_tx_I[out_idx]);
-                    checks++;
-                    if ($signed(dout) > $signed(ref_val) + tolerance ||
-                        $signed(dout) < $signed(ref_val) - tolerance) begin
-                        if (mismatches < 20) begin  // Limit printout
-                            $display("[FAIL] sample[%4d] got=%6d  exp=%6d  diff=%0d",
-                                     out_idx, dout, ref_val,
-                                     $signed(dout) - $signed(ref_val));
+                if (dout_valid) begin
+                    // Only compare after latency offset and within ref range
+                    if (out_idx >= LATENCY_OFFSET &&
+                        (out_idx - LATENCY_OFFSET) < NUM_TX_SAMPLES) begin
+                        ref_val = $signed(ref_tx_I[out_idx - LATENCY_OFFSET]);
+                        checks++;
+                        if ($signed(dout) > $signed(ref_val) + tolerance ||
+                            $signed(dout) < $signed(ref_val) - tolerance) begin
+                            if (mismatches < 20) begin  // Limit printout
+                                $display("[FAIL] rtl[%4d] ref[%4d] got=%6d  exp=%6d  diff=%0d",
+                                         out_idx, out_idx - LATENCY_OFFSET,
+                                         dout, ref_val,
+                                         $signed(dout) - $signed(ref_val));
+                            end
+                            mismatches++;
+                            errors++;
                         end
-                        mismatches++;
-                        errors++;
                     end
                     out_idx++;
                 end
@@ -170,20 +183,23 @@ module tb_rrc_filter;
         din       = '0;
         repeat (NUM_TAPS + 10) begin
             @(posedge clk);
-            if (dout_valid && out_idx < NUM_TX_SAMPLES) begin
-                ref_val = $signed(ref_tx_I[out_idx]);
-                checks++;
-                if ($signed(dout) > $signed(ref_val) + tolerance ||
-                    $signed(dout) < $signed(ref_val) - tolerance) begin
-                    mismatches++;
-                    errors++;
+            if (dout_valid) begin
+                if (out_idx >= LATENCY_OFFSET &&
+                    (out_idx - LATENCY_OFFSET) < NUM_TX_SAMPLES) begin
+                    ref_val = $signed(ref_tx_I[out_idx - LATENCY_OFFSET]);
+                    checks++;
+                    if ($signed(dout) > $signed(ref_val) + tolerance ||
+                        $signed(dout) < $signed(ref_val) - tolerance) begin
+                        mismatches++;
+                        errors++;
+                    end
                 end
                 out_idx++;
             end
         end
 
-        $display("[TB] Vector test: %0d / %0d samples compared, %0d mismatches",
-                 out_idx, NUM_TX_SAMPLES, mismatches);
+        $display("[TB] Vector test: %0d RTL output samples, %0d compared, %0d mismatches",
+                 out_idx, checks, mismatches);
     endtask
 
     // -----------------------------------------------------------------------

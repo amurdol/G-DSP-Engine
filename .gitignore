@@ -2,6 +2,13 @@
 # G-DSP Engine .gitignore
 # ===========================================================================
 
+# --- OS ---
+Thumbs.db
+.DS_Store
+
+# --- IDE / Editor ---
+.vscode/settings.json
+
 # --- Python ---
 __pycache__/
 *.pyc
@@ -10,10 +17,13 @@ __pycache__/
 venv/
 env/
 
-# --- Simulation outputs ---
-sim/waves/*.vcd
-sim/waves/*.fst
-sim/waves/*.ghw
+# --- Simulation (Icarus Verilog) ---
+*.vvp
+*.vcd
+*.lxt
+*.lxt2
+*.fst
+sim/out/
 
 # --- Gowin EDA ---
 impl/
@@ -41,13 +51,10 @@ impl/
 *.lof
 *.lot
 
-# --- Generated figures (reproducible) ---
+# --- Generated figures (reproducible from golden_model.py) ---
 # Uncomment to track them in git:
 # docs/figures/*.png
-docs/references
-
-# --- Temporary scripts ---
-install_miktex.ps1
+docs/references/
 
 # --- OS ---
 Thumbs.db

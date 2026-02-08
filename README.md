@@ -67,17 +67,18 @@ G-DSP-Engine/
 │   └── common/                   #   Shared utilities (bit gen, etc.)
 ├── sim/                          # Simulation & verification
 │   ├── tb/                       #   SystemVerilog testbenches
-│   ├── cocotb/                   #   Python-driven co-simulation
 │   ├── vectors/                  #   Stimulus / reference data (.hex)
 │   └── waves/                    #   Waveform dumps (git-ignored)
 ├── constraints/                  # Pin (.cst) and timing (.sdc) files
-├── scripts/                      # Python Golden Model & utilities
+├── scripts/                      # Automation & golden model
 │   ├── golden_model.py           #   Full 16-QAM reference chain
 │   ├── fixed_point.py            #   Qn.m conversion & export
+│   ├── run_tests.ps1             #   Unified simulation runner
 │   └── requirements.txt          #   Python dependencies
 ├── docs/                         # Technical documentation
-│   ├── fixed_point_analysis.md   #   Arithmetic justification
-│   └── figures/                  #   Auto-generated plots
+│   ├── tex/                      #   LaTeX source per phase
+│   ├── figures/                  #   Auto-generated plots
+│   └── fixed_point_analysis.md   #   Arithmetic justification
 └── README.md                     # ← You are here
 ```
 
@@ -102,7 +103,57 @@ Outputs:
 - `sim/vectors/tx_filtered_{I,Q}.hex` — Pulse-shaped Tx samples
 - `docs/figures/*.png` — Constellation, spectrum, eye diagram plots
 
-### 2. FPGA Build (Gowin EDA)
+### 2. RTL Simulation (Icarus Verilog)
+
+All testbenches run with **Icarus Verilog 12.0+** (`iverilog` / `vvp`).
+
+#### Run all tests at once
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run_tests.ps1
+```
+
+The script compiles and simulates each testbench, reports PASS/FAIL per
+module, and prints a summary at the end. Compiled binaries go to `sim/out/`
+(git-ignored). Waveform dumps (`.vcd`) go to `sim/waves/`.
+
+#### Run a single testbench manually
+
+```powershell
+# Example: QAM mapper
+iverilog -g2012 -I sim/vectors -o sim/out/tb_qam16_mapper.vvp `
+    rtl/packages/gdsp_pkg.sv `
+    rtl/modem/qam16_mapper.sv `
+    sim/tb/tb_qam16_mapper.sv
+vvp sim/out/tb_qam16_mapper.vvp
+
+# Example: RRC filter
+iverilog -g2012 -I sim/vectors -o sim/out/tb_rrc_filter.vvp `
+    rtl/packages/gdsp_pkg.sv `
+    rtl/modem/rrc_filter.sv `
+    sim/tb/tb_rrc_filter.sv
+vvp sim/out/tb_rrc_filter.vvp
+```
+
+#### Available testbenches
+
+| Testbench                | Module(s) Under Test            | Checks                                               |
+|--------------------------|---------------------------------|-------------------------------------------------------|
+| `tb_qam16_mapper.sv`    | `qam16_mapper`                  | All 16 Gray-coded constellation points                |
+| `tb_rrc_filter.sv`      | `rrc_filter`                    | Impulse response + 1024-sample vector vs Golden Model |
+| `tb_tx_top.sv`          | `bit_gen` → `mapper` → `rrc`   | End-to-end TX chain, symbol timing                    |
+| `tb_channel.sv`         | `awgn_channel`, `awgn_generator`| Noise sweep M=0…255, bypass, saturation statistics    |
+
+#### Prerequisites
+
+- **Icarus Verilog ≥ 12.0** — install via MSYS2:
+  ```bash
+  pacman -S mingw-w64-x86_64-iverilog
+  ```
+  Then add `C:\msys64\mingw64\bin` to your `PATH`.
+- **Golden Model vectors** must exist in `sim/vectors/` (run `golden_model.py` first).
+
+### 3. FPGA Build (Gowin EDA)
 
 ```bash
 # Open project in Gowin EDA IDE and synthesise

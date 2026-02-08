@@ -112,18 +112,36 @@ package gdsp_pkg;
     //   13   x^20 + x^3  + 1     1048575  (reciprocal of #3)
     //   14   x^23 + x^5  + 1      8388607 (reciprocal of #6)
     //   15   x^25 + x^3  + 1     33554431 (reciprocal of #7)
-    parameter int NOISE_LFSR_WIDTHS [0:15] = '{
-        15, 17, 18, 20, 21, 22, 23, 25,
-        28, 29, 31, 15, 17, 20, 23, 25
-    };
-    parameter int NOISE_LFSR_TAPS_A [0:15] = '{
-        15, 17, 18, 20, 21, 22, 23, 25,
-        28, 29, 31, 15, 17, 20, 23, 25
-    };
-    parameter int NOISE_LFSR_TAPS_B [0:15] = '{
-        14, 14, 11, 17, 19, 21, 18, 22,
-        25, 27, 28,  1,  3,  3,  5,  3
-    };
+    // LFSR polynomial lookup functions (iverilog-compatible)
+    function automatic int noise_lfsr_width(input int idx);
+        case (idx)
+             0: return 15;   1: return 17;   2: return 18;   3: return 20;
+             4: return 21;   5: return 22;   6: return 23;   7: return 25;
+             8: return 28;   9: return 29;  10: return 31;  11: return 15;
+            12: return 17;  13: return 20;  14: return 23;  15: return 25;
+            default: return 23;
+        endcase
+    endfunction
+
+    function automatic int noise_lfsr_tap_a(input int idx);
+        case (idx)
+             0: return 15;   1: return 17;   2: return 18;   3: return 20;
+             4: return 21;   5: return 22;   6: return 23;   7: return 25;
+             8: return 28;   9: return 29;  10: return 31;  11: return 15;
+            12: return 17;  13: return 20;  14: return 23;  15: return 25;
+            default: return 23;
+        endcase
+    endfunction
+
+    function automatic int noise_lfsr_tap_b(input int idx);
+        case (idx)
+             0: return 14;   1: return 14;   2: return 11;   3: return 17;
+             4: return 19;   5: return 21;   6: return 18;   7: return 22;
+             8: return 25;   9: return 27;  10: return 28;  11: return  1;
+            12: return  3;  13: return  3;  14: return  5;  15: return  3;
+            default: return 18;
+        endcase
+    endfunction
 
     // ========================================================================
     // HDMI / Video

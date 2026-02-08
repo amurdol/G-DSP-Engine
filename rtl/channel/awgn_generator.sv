@@ -119,6 +119,11 @@ module awgn_generator
             //   inst  = mix ^ (INSTANCE_ID * 0x5A5A_DEAD) (I/Q separation)
             //   seed  = inst | 1                          (guarantee non-zero)
             //   final = seed & ((1 << width) - 1)         (mask to LFSR width)
+            // Per-LFSR polynomial parameters (function lookup for iverilog compat)
+            localparam int W  = noise_lfsr_width(g);
+            localparam int TA = noise_lfsr_tap_a(g);
+            localparam int TB = noise_lfsr_tap_b(g);
+
             localparam [31:0] SEED_BASE = (32'hDEAD_BEE0 + g[4:0] * 32'h1357_9BDF)
                                           ^ (32'hA5A5_A5A5 >> g[4:0]);
             localparam [31:0] SEED_INST = SEED_BASE
@@ -127,18 +132,15 @@ module awgn_generator
 
             always_ff @(posedge clk or negedge rst_n) begin
                 if (!rst_n) begin
-                    lfsr_r[g] <= SEED_VAL & ((32'b1 << NOISE_LFSR_WIDTHS[g]) - 1)
+                    lfsr_r[g] <= SEED_VAL & ((32'b1 << W) - 1)
                                  | 32'h1;
                 end else if (en) begin
-                    lfsr_r[g] <= lfsr_advance(lfsr_r[g],
-                                              NOISE_LFSR_WIDTHS[g],
-                                              NOISE_LFSR_TAPS_A[g],
-                                              NOISE_LFSR_TAPS_B[g]);
+                    lfsr_r[g] <= lfsr_advance(lfsr_r[g], W, TA, TB);
                 end
             end
 
             // Extract top 12 bits from each LFSR as unsigned uniform sample
-            assign uniform[g] = lfsr_r[g][NOISE_LFSR_WIDTHS[g]-1 -: DATA_WIDTH];
+            assign uniform[g] = lfsr_r[g][W-1 -: DATA_WIDTH];
         end
     endgenerate
 
@@ -219,13 +221,15 @@ module awgn_generator
     assign shifted = scaled_product >>> 12;
 
     // Saturation to Q1.11 range [−2048, +2047]
+    wire signed [DATA_WIDTH-1:0] shifted_trunc = shifted[DATA_WIDTH-1:0];
+
     always_comb begin
         if (shifted > 25'sd2047)
             noise_trunc = 12'sd2047;
         else if (shifted < -25'sd2048)
             noise_trunc = -12'sd2048;
         else
-            noise_trunc = shifted[DATA_WIDTH-1:0];
+            noise_trunc = shifted_trunc;
     end
 
     // Output register

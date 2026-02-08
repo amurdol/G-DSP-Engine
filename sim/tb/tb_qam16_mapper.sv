@@ -53,8 +53,8 @@ module tb_qam16_mapper;
     logic [DATA_WIDTH-1:0] ref_Q [0:NUM_SYMBOLS-1];
 
     initial begin
-        $readmemh("../../sim/vectors/qam16_symbols_I.hex", ref_I);
-        $readmemh("../../sim/vectors/qam16_symbols_Q.hex", ref_Q);
+        $readmemh("sim/vectors/qam16_symbols_I.hex", ref_I);
+        $readmemh("sim/vectors/qam16_symbols_Q.hex", ref_Q);
     end
 
     // -----------------------------------------------------------------------

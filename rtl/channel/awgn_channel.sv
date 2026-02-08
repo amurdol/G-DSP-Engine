@@ -101,20 +101,25 @@ module channel_top
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            for (int i = 0; i < 3; i++) begin
-                tx_I_d[i]     <= '0;
-                tx_Q_d[i]     <= '0;
-                tx_valid_d[i] <= 1'b0;
-            end
+            tx_I_d[0]     <= '0;
+            tx_I_d[1]     <= '0;
+            tx_I_d[2]     <= '0;
+            tx_Q_d[0]     <= '0;
+            tx_Q_d[1]     <= '0;
+            tx_Q_d[2]     <= '0;
+            tx_valid_d[0] <= 1'b0;
+            tx_valid_d[1] <= 1'b0;
+            tx_valid_d[2] <= 1'b0;
         end else begin
             tx_I_d[0]     <= tx_I;
             tx_Q_d[0]     <= tx_Q;
             tx_valid_d[0] <= tx_valid;
-            for (int i = 1; i < 3; i++) begin
-                tx_I_d[i]     <= tx_I_d[i-1];
-                tx_Q_d[i]     <= tx_Q_d[i-1];
-                tx_valid_d[i] <= tx_valid_d[i-1];
-            end
+            tx_I_d[1]     <= tx_I_d[0];
+            tx_Q_d[1]     <= tx_Q_d[0];
+            tx_valid_d[1] <= tx_valid_d[0];
+            tx_I_d[2]     <= tx_I_d[1];
+            tx_Q_d[2]     <= tx_Q_d[1];
+            tx_valid_d[2] <= tx_valid_d[1];
         end
     end
 
@@ -139,29 +144,35 @@ module channel_top
     logic signed [DATA_WIDTH:0] sum_I, sum_Q;  // 13-bit signed
     sample_t rx_I_sat, rx_Q_sat;
 
-    assign sum_I = {tx_I_d[2][DATA_WIDTH-1], tx_I_d[2]} +
-                   {noise_I[DATA_WIDTH-1], noise_I};
-    assign sum_Q = {tx_Q_d[2][DATA_WIDTH-1], tx_Q_d[2]} +
-                   {noise_Q[DATA_WIDTH-1], noise_Q};
+    // Sign-extend operands via wires (iverilog workaround)
+    wire signed [DATA_WIDTH:0] tx_I_ext = {tx_I_d[2][11], tx_I_d[2]};
+    wire signed [DATA_WIDTH:0] tx_Q_ext = {tx_Q_d[2][11], tx_Q_d[2]};
+    wire signed [DATA_WIDTH:0] nI_ext   = {noise_I[11],   noise_I};
+    wire signed [DATA_WIDTH:0] nQ_ext   = {noise_Q[11],   noise_Q};
+
+    assign sum_I = tx_I_ext + nI_ext;
+    assign sum_Q = tx_Q_ext + nQ_ext;
 
     // I-channel saturation
+    wire signed [DATA_WIDTH-1:0] sum_I_lo = sum_I[DATA_WIDTH-1:0];
     always_comb begin
         if (sum_I > 13'sd2047)
             rx_I_sat = SAT_POS;
         else if (sum_I < -13'sd2048)
             rx_I_sat = SAT_NEG;
         else
-            rx_I_sat = sum_I[DATA_WIDTH-1:0];
+            rx_I_sat = sum_I_lo;
     end
 
     // Q-channel saturation
+    wire signed [DATA_WIDTH-1:0] sum_Q_lo = sum_Q[DATA_WIDTH-1:0];
     always_comb begin
         if (sum_Q > 13'sd2047)
             rx_Q_sat = SAT_POS;
         else if (sum_Q < -13'sd2048)
             rx_Q_sat = SAT_NEG;
         else
-            rx_Q_sat = sum_Q[DATA_WIDTH-1:0];
+            rx_Q_sat = sum_Q_lo;
     end
 
     // -----------------------------------------------------------------------

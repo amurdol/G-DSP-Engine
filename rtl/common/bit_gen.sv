@@ -43,15 +43,22 @@ module bit_gen
         lfsr_step = {state[LFSR_WIDTH-2:0], fb};
     endfunction
 
-    // 4-step unrolled advance
-    logic [LFSR_WIDTH-1:0] lfsr_next [0:BITS_PER_SYM];
+    // 4-step unrolled advance (manually unrolled for iverilog compatibility)
+    wire [LFSR_WIDTH-1:0] lfsr_s1, lfsr_s2, lfsr_s3, lfsr_s4;
+    assign lfsr_s1 = lfsr_step(lfsr_r);
+    assign lfsr_s2 = lfsr_step(lfsr_s1);
+    assign lfsr_s3 = lfsr_step(lfsr_s2);
+    assign lfsr_s4 = lfsr_step(lfsr_s3);
 
-    always_comb begin
-        lfsr_next[0] = lfsr_r;
-        for (int i = 0; i < BITS_PER_SYM; i++) begin
-            lfsr_next[i+1] = lfsr_step(lfsr_next[i]);
-        end
-    end
+    // MSB of each intermediate state → output bits
+    // bit[3] = MSB of lfsr_r (before first step)
+    // bit[2] = MSB of lfsr_s1
+    // bit[1] = MSB of lfsr_s2
+    // bit[0] = MSB of lfsr_s3
+    wire [BITS_PER_SYM-1:0] lfsr_msb = {lfsr_r[LFSR_WIDTH-1],
+                                          lfsr_s1[LFSR_WIDTH-1],
+                                          lfsr_s2[LFSR_WIDTH-1],
+                                          lfsr_s3[LFSR_WIDTH-1]};
 
     // -----------------------------------------------------------------------
     // Sequential logic
@@ -64,11 +71,8 @@ module bit_gen
         end else begin
             valid_r <= 1'b0;
             if (en) begin
-                lfsr_r <= lfsr_next[BITS_PER_SYM];
-                // Collect the MSB of each intermediate state as output bit
-                for (int i = 0; i < BITS_PER_SYM; i++) begin
-                    bits_r[BITS_PER_SYM-1-i] <= lfsr_next[i][LFSR_WIDTH-1];
-                end
+                lfsr_r  <= lfsr_s4;
+                bits_r  <= lfsr_msb;
                 valid_r <= 1'b1;
             end
         end

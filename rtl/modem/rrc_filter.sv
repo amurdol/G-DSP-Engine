@@ -67,8 +67,8 @@ module rrc_filter
     // -----------------------------------------------------------------------
     // Coefficient ROM — loaded from auto-generated include file
     // -----------------------------------------------------------------------
-    `include "../../sim/vectors/rrc_coeffs.v"
-    // Provides: localparam signed [11:0] RRC_COEFFS [0:32]
+    `include "rrc_coeffs.v"
+    // Provides: function rrc_coeff(idx) → signed [11:0]
 
     // -----------------------------------------------------------------------
     // Transposed FIR pipeline registers
@@ -98,7 +98,7 @@ module rrc_filter
     // -----------------------------------------------------------------------
     always_comb begin
         for (int i = 0; i < NUM_TAPS; i++) begin
-            product[i] = din * RRC_COEFFS[i];
+            product[i] = din * rrc_coeff(i);
         end
     end
 
@@ -172,15 +172,15 @@ module rrc_filter
 
     sample_t dout_sat;
 
+    // Extract overflow-detection bits into wires (iverilog workaround)
+    wire sign_bit = acc_val[ACCUM_WIDTH-1];
+    wire upper_or = |acc_val[ACCUM_WIDTH-1 : FRAC_BITS+DATA_WIDTH];
+    wire upper_and = &acc_val[ACCUM_WIDTH-1 : FRAC_BITS+DATA_WIDTH];
+
     always_comb begin
-        // Check if the upper bits (above bit 22) carry meaningful magnitude
-        // If acc_val[ACCUM_WIDTH-1:FRAC_BITS+DATA_WIDTH-1] are not all the
-        // same (sign extension), then we have overflow.
-        if (acc_val[ACCUM_WIDTH-1] == 1'b0 &&
-            |acc_val[ACCUM_WIDTH-1 : FRAC_BITS+DATA_WIDTH] != 1'b0) begin
+        if (sign_bit == 1'b0 && upper_or != 1'b0) begin
             dout_sat = SAT_POS;   // Positive overflow
-        end else if (acc_val[ACCUM_WIDTH-1] == 1'b1 &&
-                     &acc_val[ACCUM_WIDTH-1 : FRAC_BITS+DATA_WIDTH] != 1'b1) begin
+        end else if (sign_bit == 1'b1 && upper_and != 1'b1) begin
             dout_sat = SAT_NEG;   // Negative overflow
         end else begin
             dout_sat = dout_trunc;
