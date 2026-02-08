@@ -76,6 +76,34 @@ package gdsp_pkg;
     parameter int LFSR_TAP_B    = 18;            // Second tap position
 
     // ========================================================================
+    // AWGN Channel — Noise Generator
+    //   Uses CLT (Central Limit Theorem) with 16 uniform LFSR sources.
+    //   Each LFSR output is 12 bits; sum of 16 → 16-bit; shift/truncate → 12.
+    //   noise_mag register: unsigned 8-bit scaling factor (0..255).
+    //     Effective noise_rms ≈ noise_mag / 256 (in Q1.11 units).
+    // ========================================================================
+    parameter int NUM_LFSR_NOISE  = 16;            // LFSRs for CLT sum
+    parameter int NOISE_MAG_WIDTH = 8;             // Bits for noise_magnitude register
+    parameter int NOISE_SUM_WIDTH = DATA_WIDTH + 4; // 16 bits (12 + log2(16))
+    parameter int NOISE_PROD_W    = NOISE_SUM_WIDTH + NOISE_MAG_WIDTH; // 24
+
+    // LFSR polynomials (all primitive, distinct lengths to avoid correlation)
+    //   Format: {width, tap_a, tap_b}
+    //   Each LFSR uses: feedback = state[tap_a-1] ^ state[tap_b-1]
+    parameter int NOISE_LFSR_WIDTHS [0:15] = '{
+        17, 19, 20, 21, 22, 23, 25, 28,
+        29, 31, 15, 18, 24, 26, 27, 30
+    };
+    parameter int NOISE_LFSR_TAPS_A [0:15] = '{
+        17, 19, 20, 21, 22, 23, 25, 28,
+        29, 31, 15, 18, 24, 26, 27, 30
+    };
+    parameter int NOISE_LFSR_TAPS_B [0:15] = '{
+        14,  6,  3,  2,  1, 18, 22, 25,
+        27, 28, 14, 11,  7,  6,  5,  6
+    };
+
+    // ========================================================================
     // HDMI / Video
     // ========================================================================
     parameter int H_ACTIVE      = 1280;
