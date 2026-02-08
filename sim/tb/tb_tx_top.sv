@@ -80,7 +80,7 @@ module tb_tx_top;
     // Main test sequence
     // -----------------------------------------------------------------------
     initial begin
-        $dumpfile("tb_tx_top.vcd");
+        $dumpfile("sim/waves/tb_tx_top.vcd");
         $dumpvars(0, tb_tx_top);
 
         en    = 1'b0;

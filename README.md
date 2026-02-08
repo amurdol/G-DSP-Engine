@@ -1,188 +1,235 @@
 # G-DSP Engine
 
-> **16-QAM Baseband Processor with Real-Time HDMI Visualisation**
+> **16-QAM Baseband Processor with Real-Time HDMI Visualisation**  
 > Final Degree Project (TFG) — FPGA-based DSP on Gowin GW1NR-9
 
 ---
 
-## Overview
+## Project Summary
 
-G-DSP Engine is a fully hardware-implemented 16-QAM digital communications
-transceiver running on the **Sipeed Tang Nano 9K** (Gowin GW1NR-LV9).
-It performs modulation, pulse shaping, noise injection, matched filtering,
-symbol-timing recovery (Gardner TED) and carrier recovery (decision-directed
-Costas loop with dual gear-shifting), and renders the IQ constellation in
-**720p @ 60 Hz over HDMI** — all in real time, with no soft-core CPU in the
-data path.
+G-DSP Engine is a **fully hardware-implemented 16-QAM digital modem**
+running on the **Sipeed Tang Nano 9K** (Gowin GW1NR-LV9QN88PC6/I5).
+The system performs complete transmit/receive signal processing including:
 
-## Architecture
+- **Modulation**: Gray-coded 16-QAM symbol mapping
+- **Pulse Shaping**: Root-raised cosine (RRC) FIR filter, α=0.25, 33 taps
+- **Channel Model**: Parametric AWGN noise injection (CLT-based)
+- **Timing Recovery**: Gardner TED with NCO-based interpolation
+- **Carrier Recovery**: Decision-directed Costas loop with dual gear-shifting
+- **Visualisation**: Real-time IQ constellation on **720p @ 60 Hz HDMI**
+
+No soft-core CPU is used in the data path — all DSP runs purely in RTL.
+
+---
+
+## Architecture Overview
 
 ```
-┌─────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐
-│  PRBS   │──▶│ 16-QAM   │──▶│  RRC Tx  │──▶│   AWGN   │──▶│  RRC Rx  │
-│ Bit Gen │   │ Mapper   │   │ Pulse    │   │ Channel  │   │ Matched  │
-│         │   │ (Gray)   │   │ Shaping  │   │  (CLT)   │   │ Filter   │
-└─────────┘   └──────────┘   └──────────┘   └──────────┘   └──────────┘
-                                                                 │
-┌─────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐        │
-│  HDMI   │◀──│ Constel. │◀──│  Costas  │◀──│ Gardner  │◀───────┘
-│ 720p60  │   │ Renderer │   │  Loop    │   │ Timing   │
-│ (PSRAM) │   │          │   │(Carrier) │   │ Recovery │
-└─────────┘   └──────────┘   └──────────┘   └──────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              G-DSP Engine                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐    │
+│  │  PRBS   │──>│ 16-QAM   │──>│  RRC Tx  │──>│   AWGN   │──>│  RRC Rx  │    │
+│  │ Bit Gen │   │ Mapper   │   │  Filter  │   │ Channel  │   │ Matched  │    │
+│  └─────────┘   └──────────┘   └──────────┘   └──────────┘   └──────────┘    │
+│    Phase 1        Phase 1        Phase 1        Phase 2        Phase 3      │
+│                                                                       │     │
+│  ┌─────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐             │     │
+│  │  HDMI   │<──│ Constel. │<──│  Costas  │<──│ Gardner  │<────────────┘     │
+│  │ 720p60  │   │ Renderer │   │   Loop   │   │   TED    │                   │
+│  └─────────┘   └──────────┘   └──────────┘   └──────────┘                   │
+│    Phase 4        Phase 4        Phase 3        Phase 3                     │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-## Hardware Target
+---
+
+## Hardware Platform
 
 | Parameter       | Value                                    |
 |-----------------|------------------------------------------|
 | **FPGA**        | Gowin GW1NR-LV9QN88PC6/I5               |
 | **LUTs**        | 8,640                                    |
-| **DSP Slices**  | 20 (MULT9/pREG)                          |
+| **DSP Slices**  | 20 (MULT9×pREG)                         |
 | **BSRAM**       | 26 × 18 Kbit                             |
-| **PSRAM**       | 64 Mbit HyperRAM (frame buffer)          |
+| **PSRAM**       | 64 Mbit HyperRAM (available, not used)   |
 | **Video Out**   | HDMI 720p @ 60 Hz (TMDS)                 |
-| **Clock**       | 27 MHz oscillator → PLL to system/pixel  |
+| **Clock**       | 27 MHz → PLL → 27/74.25/371.25 MHz      |
+
+---
 
 ## Fixed-Point Format
 
 **Q1.11** — 12-bit signed, two's complement.
 
-- Range: $[-1.0, +1.0 - 2^{-11}]$
-- Resolution (1 LSB): $2^{-11} \approx 4.88 \times 10^{-4}$
-- SQNR: ~68 dB (40+ dB above 16-QAM operating point)
+| Property    | Value                              |
+|-------------|------------------------------------|
+| Range       | $[-1.0, +1.0 - 2^{-11}]$          |
+| Resolution  | $2^{-11} \approx 4.88 \times 10^{-4}$ |
+| SQNR        | ~68 dB                             |
 
-See [`docs/fixed_point_analysis.md`](docs/fixed_point_analysis.md) for the
-full derivation and DSP resource budget.
+See [`docs/fixed_point_analysis.md`](docs/fixed_point_analysis.md) for full derivation.
+
+---
 
 ## Repository Structure
 
 ```
 G-DSP-Engine/
-├── rtl/                          # Synthesisable RTL (SystemVerilog)
-│   ├── packages/                 #   Global parameters (gdsp_pkg.sv)
-│   ├── top/                      #   Top-level integration
-│   ├── modem/                    #   QAM mapper, RRC filters
-│   ├── channel/                  #   AWGN noise generator
-│   ├── sync/                     #   Gardner TED, Costas Loop
-│   ├── video/                    #   HDMI TX, constellation renderer
-│   ├── memory/                   #   PSRAM controller
-│   └── common/                   #   Shared utilities (bit gen, etc.)
-├── sim/                          # Simulation & verification
-│   ├── tb/                       #   SystemVerilog testbenches
-│   ├── vectors/                  #   Stimulus / reference data (.hex)
-│   └── waves/                    #   Waveform dumps (git-ignored)
-├── constraints/                  # Pin (.cst) and timing (.sdc) files
-├── scripts/                      # Automation & golden model
-│   ├── golden_model.py           #   Full 16-QAM reference chain
-│   ├── fixed_point.py            #   Qn.m conversion & export
-│   ├── run_tests.ps1             #   Unified simulation runner
-│   └── requirements.txt          #   Python dependencies
-├── docs/                         # Technical documentation
-│   ├── tex/                      #   LaTeX source per phase
-│   ├── figures/                  #   Auto-generated plots
-│   └── fixed_point_analysis.md   #   Arithmetic justification
-└── README.md                     # ← You are here
+├── rtl/                        # Synthesisable RTL (SystemVerilog)
+│   ├── packages/gdsp_pkg.sv    #   Global parameters & types
+│   ├── common/bit_gen.sv       #   PRBS-23 generator
+│   ├── modem/                  #   QAM mapper, RRC filters, TX/RX tops
+│   ├── channel/                #   AWGN noise generator & channel
+│   ├── sync/                   #   Gardner TED, Costas loop
+│   ├── video/                  #   Constellation renderer, HDMI TX
+│   └── top/gdsp_top.sv         #   System top-level
+│
+├── sim/                        # Simulation & verification
+│   ├── tb/                     #   SystemVerilog testbenches
+│   ├── vectors/                #   Stimulus from golden model (.hex/.mem)
+│   ├── out/                    #   Compiled VVP binaries (git-ignored)
+│   └── waves/                  #   VCD waveform dumps (git-ignored)
+│
+├── scripts/                    # Automation & golden model
+│   ├── golden_model.py         #   Python bit-true reference (SOURCE OF TRUTH)
+│   ├── fixed_point.py          #   Q-format conversion utilities
+│   ├── run_tests.ps1           #   Unified testbench runner
+│   └── requirements.txt        #   Python dependencies
+│
+├── constraints/                # FPGA constraints
+│   ├── tangnano9k.cst          #   Pin assignments
+│   └── timing.sdc              #   Clock & timing constraints
+│
+├── docs/                       # Technical documentation
+│   ├── tex/                    #   LaTeX source (fase1–4)
+│   ├── figures/                #   Auto-generated plots
+│   └── fixed_point_analysis.md #   Arithmetic design notes
+│
+└── gowin/                      # Gowin EDA project files
 ```
+
+---
 
 ## Quick Start
 
-### 1. Python Golden Model
+### 1. Install Prerequisites
 
 ```bash
-# Install dependencies
+# Python 3.10+ with dependencies
 pip install -r scripts/requirements.txt
 
-# Run the golden model (generates vectors + plots)
-python scripts/golden_model.py --nsym 256 --snr 20
-
-# Custom parameters
-python scripts/golden_model.py --nsym 1024 --alpha 0.25 --ntaps 33 --snr 15
+# Icarus Verilog 12.0+ (via MSYS2 on Windows)
+pacman -S mingw-w64-x86_64-iverilog
+# Add C:\msys64\mingw64\bin to PATH
 ```
 
-Outputs:
-- `sim/vectors/rrc_coeffs.{hex,mem,v}` — RRC filter taps for Verilog
-- `sim/vectors/qam16_symbols_{I,Q}.hex` — Reference constellation points
-- `sim/vectors/tx_filtered_{I,Q}.hex` — Pulse-shaped Tx samples
-- `docs/figures/*.png` — Constellation, spectrum, eye diagram plots
+### 2. Generate Golden Model Vectors
 
-### 2. RTL Simulation (Icarus Verilog)
+```bash
+python scripts/golden_model.py --nsym 256 --snr 20
+```
 
-All testbenches run with **Icarus Verilog 12.0+** (`iverilog` / `vvp`).
+**Outputs:**
+- `sim/vectors/rrc_coeffs.{hex,mem,v}` — RRC filter coefficients
+- `sim/vectors/qam16_symbols_{I,Q}.hex` — Reference constellation
+- `sim/vectors/tx_filtered_{I,Q}.hex` — Pulse-shaped samples
+- `docs/figures/*.png` — Constellation, eye diagram, spectrum plots
 
-#### Run all tests at once
+### 3. Run RTL Testbench Suite
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/run_tests.ps1
 ```
 
-The script compiles and simulates each testbench, reports PASS/FAIL per
-module, and prints a summary at the end. Compiled binaries go to `sim/out/`
-(git-ignored). Waveform dumps (`.vcd`) go to `sim/waves/`.
+**Tests included:**
 
-#### Run a single testbench manually
+| Test                | Description                                  |
+|---------------------|----------------------------------------------|
+| QAM Mapper          | All 16 Gray-coded points vs truth table      |
+| RRC Filter          | Impulse + 1024-vector comparison             |
+| TX Top              | End-to-end transmit chain                    |
+| AWGN Channel        | Noise sweep M=0…255, saturation checks       |
+| RX Top              | Full modem + 5 kHz CFO stress test (≥75%)    |
+| GDSP Top            | Phase 4 integration, PLL + HDMI connectivity |
 
-```powershell
-# Example: QAM mapper
-iverilog -g2012 -I sim/vectors -o sim/out/tb_qam16_mapper.vvp `
-    rtl/packages/gdsp_pkg.sv `
-    rtl/modem/qam16_mapper.sv `
-    sim/tb/tb_qam16_mapper.sv
-vvp sim/out/tb_qam16_mapper.vvp
+### 4. FPGA Synthesis (Gowin EDA)
 
-# Example: RRC filter
-iverilog -g2012 -I sim/vectors -o sim/out/tb_rrc_filter.vvp `
-    rtl/packages/gdsp_pkg.sv `
-    rtl/modem/rrc_filter.sv `
-    sim/tb/tb_rrc_filter.sv
-vvp sim/out/tb_rrc_filter.vvp
+1. Open `gowin/gdsp_engine/gdsp_engine.gprj` in Gowin EDA IDE
+2. Synthesise and place-and-route
+3. Program the Tang Nano 9K via USB
 
-# Example: RX Top (full chain with 5 kHz CFO stress test)
-iverilog -g2012 -I sim/vectors -o sim/out/tb_rx_top.vvp `
-    rtl/packages/gdsp_pkg.sv rtl/common/bit_gen.sv `
-    rtl/modem/qam16_mapper.sv rtl/modem/rrc_filter.sv rtl/modem/tx_top.sv `
-    rtl/channel/awgn_generator.sv rtl/channel/awgn_channel.sv `
-    rtl/sync/gardner_ted.sv rtl/sync/costas_loop.sv rtl/modem/rx_top.sv `
-    sim/tb/tb_rx_top.sv
-vvp sim/out/tb_rx_top.vvp
-```
+**Physical Interface:**
+- **Button S1**: Cycles noise level (0 → 20 → 50 → 100)
+- **Button S2**: System reset
+- **LED[0]**: Heartbeat (~0.8 Hz)
+- **LED[1]**: Costas lock indicator
+- **LED[3:2]**: Noise level (binary)
+- **LED[4]**: PLL lock
+- **HDMI**: Live 720p60 constellation display
 
-#### Available testbenches
-
-| Testbench                | Module(s) Under Test            | Checks                                               |
-|--------------------------|---------------------------------|-------------------------------------------------------|
-| `tb_qam16_mapper.sv`    | `qam16_mapper`                  | All 16 Gray-coded constellation points                |
-| `tb_rrc_filter.sv`      | `rrc_filter`                    | Impulse response + 1024-sample vector vs Golden Model |
-| `tb_tx_top.sv`          | `bit_gen` → `mapper` → `rrc`   | End-to-end TX chain, symbol timing                    |
-| `tb_channel.sv`         | `awgn_channel`, `awgn_generator`| Noise sweep M=0…255, bypass, saturation statistics    |
-| `tb_rx_top.sv`          | Full TX→Channel→RX chain        | CFO stress test (5 kHz), NCO activity, ≥75% accuracy  |
-
-#### Prerequisites
-
-- **Icarus Verilog ≥ 12.0** — install via MSYS2:
-  ```bash
-  pacman -S mingw-w64-x86_64-iverilog
-  ```
-  Then add `C:\msys64\mingw64\bin` to your `PATH`.
-- **Golden Model vectors** must exist in `sim/vectors/` (run `golden_model.py` first).
-
-### 3. FPGA Build (Gowin EDA)
-
-```bash
-# Open project in Gowin EDA IDE and synthesise
-# Or use command-line flow (when configured):
-# gw_sh run.tcl
-```
+---
 
 ## Development Phases
 
-| Phase | Description                              | Status       |
-|:-----:|------------------------------------------|:------------:|
-| **0** | Setup, Golden Model, Fixed-Point         | Done         |
-| **1** | RTL: QAM Mapper + RRC FIR Filter         | Done         |
-| **2** | RTL: AWGN Channel (CLT, N=16)            | Done         |
-| **3** | RTL: Gardner TED + Costas Loop (DD-PLL)  | Done         |
-| **4** | Integration, Timing Closure, Demo        | Planned      |
+| Phase | Description                              | Status   |
+|:-----:|------------------------------------------|:--------:|
+| **0** | Project setup, golden model, Q-format    | ✅ Done  |
+| **1** | QAM mapper + RRC pulse-shaping filter    | ✅ Done  |
+| **2** | AWGN channel (CLT, N=16 LFSRs)          | ✅ Done  |
+| **3** | Gardner TED + Costas loop (DD-PLL)       | ✅ Done  |
+| **4** | System integration + HDMI visualisation  | ✅ Done  |
+
+---
+
+## Test Results Summary
+
+| Metric                        | Result                          |
+|-------------------------------|---------------------------------|
+| **QAM Mapper**                | 16/16 points correct            |
+| **RRC Filter**                | 1024/1024 samples ±2 LSB        |
+| **TX Chain**                  | Symbols & timing verified       |
+| **Channel**                   | Bypass + noise sweep OK         |
+| **RX with 5 kHz CFO**         | Lock in ~326 sym, 81% accuracy  |
+| **Costas NCO**                | ω converges to ≈ −48 (tracking) |
+
+---
+
+## Resource Estimation
+
+| Resource      | Used (est.) | Available | Utilisation |
+|---------------|------------:|----------:|:-----------:|
+| LUTs          |      ~5,200 |     8,640 |     60%     |
+| Flip-Flops    |      ~2,800 |     6,480 |     43%     |
+| DSP (MULT9)   |           8 |        20 |     40%     |
+| BSRAM (18kb)  |           4 |        26 |     15%     |
+| PLL           |           1 |         2 |     50%     |
+
+*Note: Actual usage varies with synthesis optimisation settings.*
+
+---
+
+## Documentation
+
+Technical write-ups for each phase are in [`docs/tex/`](docs/tex/):
+
+- `fase1_tx_subsystem.tex` — QAM mapping, RRC filter design
+- `fase2_channel.tex` — AWGN model, CLT implementation
+- `fase3_rx.tex` — Timing/carrier recovery, Costas loop analysis
+- `fase4_integration.tex` — Top-level, clocking, HDMI renderer
+
+---
 
 ## License
 
 MIT — See [LICENSE](LICENSE) for details.
+
+---
+
+## Acknowledgements
+
+- Sipeed for the Tang Nano 9K development board
+- Gowin Semiconductor for the EDA toolchain
+- The open-source FPGA community for Icarus Verilog

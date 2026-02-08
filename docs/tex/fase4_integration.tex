@@ -1,0 +1,541 @@
+% !TEX root = fase4_integration.tex
+% ============================================================================
+% G-DSP Engine --- Documentaci\'{o}n T\'{e}cnica: Fase 4
+% Integraci\'{o}n Final y Visualizaci\'{o}n HDMI
+% ============================================================================
+% Compilar:  pdflatex fase4_integration.tex  (x2 para referencias)
+% ============================================================================
+
+\documentclass[a4paper,11pt,spanish]{article}
+
+% ---------------------------------------------------------------------------
+% Paquetes
+% ---------------------------------------------------------------------------
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish,es-tabla]{babel}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{siunitx}
+\usepackage{hyperref}
+\usepackage{geometry}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, calc, shapes.geometric, decorations.pathreplacing, fit}
+
+\geometry{margin=2.5cm}
+
+\sisetup{
+    output-decimal-marker = {,},
+    per-mode = symbol
+}
+
+% ---------------------------------------------------------------------------
+% Configuraci\'{o}n de listings para SystemVerilog
+% ---------------------------------------------------------------------------
+\lstdefinelanguage{SystemVerilog}{
+    morekeywords={module, endmodule, input, output, logic, signed, parameter,
+                  int, always_ff, always_comb, posedge, negedge, if, else,
+                  begin, end, for, case, endcase, function, automatic,
+                  endfunction, localparam, assign, typedef, package,
+                  endpackage, import, default, generate, endgenerate, wire},
+    sensitive=true,
+    morecomment=[l]{//},
+    morecomment=[s]{/*}{*/},
+    morestring=[b]",
+}
+
+\lstset{
+    language=SystemVerilog,
+    basicstyle=\ttfamily\footnotesize,
+    keywordstyle=\bfseries\color{blue!70!black},
+    commentstyle=\itshape\color{green!50!black},
+    stringstyle=\color{red!60!black},
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    numbersep=5pt,
+    frame=single,
+    breaklines=true,
+    captionpos=b,
+    tabsize=4,
+    showstringspaces=false,
+}
+
+% ---------------------------------------------------------------------------
+% Datos del documento
+% ---------------------------------------------------------------------------
+\title{%
+    \textbf{G-DSP Engine} \\[0.5em]
+    \Large Integraci\'{o}n Final y Visualizaci\'{o}n HDMI \\[0.3em]
+    \large Fase~4 --- Documentaci\'{o}n T\'{e}cnica del TFG
+}
+\author{G-DSP Team}
+\date{Febrero 2026}
+
+% ============================================================================
+\begin{document}
+% ============================================================================
+
+\maketitle
+\tableofcontents
+\newpage
+
+% ============================================================================
+\section{Introducci\'{o}n a la Fase de Integraci\'{o}n}
+\label{sec:intro_integration}
+% ============================================================================
+
+La Fase~4 del proyecto G-DSP Engine completa la implementaci\'{o}n del
+m\'{o}dem 16-QAM integrando todos los subsistemas desarrollados en las
+fases anteriores sobre la FPGA Gowin GW1NR-LV9QN88PC6/I5 (Tang Nano~9K).
+Esta fase abarca:
+
+\begin{itemize}
+    \item Instanciaci\'{o}n del m\'{o}dulo \texttt{gdsp\_top} que conecta
+          TX $\to$ Canal $\to$ RX en una cadena completa.
+    \item Generaci\'{o}n de m\'{u}ltiples dominios de reloj mediante el
+          PLL integrado de Gowin.
+    \item Renderizado en tiempo real de la constelaci\'{o}n IQ sobre
+          salida HDMI a \SI{720}{p} @ \SI{60}{Hz}.
+    \item Interfaz f\'{\i}sica con botones y LEDs para control interactivo
+          del nivel de ruido.
+\end{itemize}
+
+El resultado es un demostrador funcional donde el usuario puede observar
+c\'{o}mo la dispersi\'{o}n de la constelaci\'{o}n aumenta al incrementar
+la magnitud del ruido AWGN, verificando visualmente el correcto
+funcionamiento del lazo de sincronizaci\'{o}n Costas.
+
+
+% ============================================================================
+\section{Arquitectura del Top-Level}
+\label{sec:top_architecture}
+% ============================================================================
+
+El m\'{o}dulo \texttt{gdsp\_top} act\'{u}a como punto de entrada del
+dise\~{n}o sintetizable. La Figura~\ref{fig:gdsp_top_block} muestra su
+diagrama de bloques simplificado.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    block/.style={draw, rectangle, minimum width=2.2cm, minimum height=1cm,
+                  align=center, font=\footnotesize},
+    pll/.style={draw, rectangle, rounded corners, minimum width=1.8cm,
+                minimum height=1.2cm, fill=yellow!20, font=\footnotesize},
+    arrow/.style={-{Stealth[length=2mm]}, thick},
+    domain/.style={draw, dashed, rounded corners, inner sep=8pt}
+]
+    % PLL
+    \node[pll] (pll) at (0,0) {Gowin\\PLL};
+    
+    % Clocks out
+    \draw[arrow] (pll.east) -- ++(0.8,0) node[right, font=\scriptsize] {clk\_dsp (27\,MHz)};
+    \draw[arrow] (pll.east) ++(0,-0.3) -- ++(0.8,0) node[right, font=\scriptsize] {clk\_pixel (74.25\,MHz)};
+    \draw[arrow] (pll.east) ++(0,-0.6) -- ++(0.8,0) node[right, font=\scriptsize] {clk\_serial (371.25\,MHz)};
+    
+    % Clock in
+    \draw[arrow] (-2,0) node[left, font=\scriptsize] {clk\_27m} -- (pll.west);
+
+    % DSP Domain
+    \node[block, fill=blue!10] (tx) at (5, 1.5) {tx\_top};
+    \node[block, fill=orange!10] (ch) at (7.5, 1.5) {channel\_top};
+    \node[block, fill=green!10] (rx) at (10, 1.5) {rx\_top};
+    
+    \draw[arrow] (tx) -- (ch);
+    \draw[arrow] (ch) -- (rx);
+    
+    % Domain box DSP
+    \node[domain, fit=(tx)(ch)(rx), label={[font=\scriptsize]above:Dominio clk\_dsp}] (dsp_domain) {};
+
+    % Video Domain
+    \node[block, fill=purple!10] (renderer) at (7.5, -1.5) {constellation\\renderer};
+    \node[block, fill=red!10] (hdmi) at (10, -1.5) {hdmi\_tx};
+    
+    \draw[arrow] (renderer) -- (hdmi);
+    
+    % Domain box Video
+    \node[domain, fit=(renderer)(hdmi), label={[font=\scriptsize]above:Dominio clk\_pixel}] (vid_domain) {};
+    
+    % CDC
+    \draw[arrow, dashed, blue] (rx.south) -- ++(0,-0.8) -| (renderer.north)
+        node[pos=0.25, right, font=\scriptsize] {CDC};
+    
+    % HDMI out
+    \draw[arrow] (hdmi.east) -- ++(1,0) node[right, font=\scriptsize] {TMDS};
+    
+    % Button/LED
+    \node[block, fill=gray!10] (io) at (2.5, -1.5) {Debounce\\LEDs};
+    \draw[arrow] (io.north) -- ++(0,0.8) -| (ch.south);
+    \draw[arrow] (-2,-1.5) node[left, font=\scriptsize] {btn\_user} -- (io.west);
+    \draw[arrow] (io.south) -- ++(0,-0.5) node[below, font=\scriptsize] {led[5:0]};
+
+\end{tikzpicture}
+\caption{Diagrama de bloques del m\'{o}dulo \texttt{gdsp\_top}.}
+\label{fig:gdsp_top_block}
+\end{figure}
+
+
+% ============================================================================
+\section{Gesti\'{o}n de Dominios de Reloj}
+\label{sec:clock_domains}
+% ============================================================================
+
+El dise\~{n}o opera con tres relojes derivados del oscilador de
+\SI{27}{MHz} de la placa Tang Nano~9K mediante un PLL Gowin:
+
+\begin{table}[H]
+\centering
+\caption{Dominios de reloj del sistema.}
+\label{tab:clocks}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Se\~{n}al} & \textbf{Frecuencia} & \textbf{Per\'{\i}odo} & \textbf{Uso} \\
+\midrule
+\texttt{clk\_dsp}    & \SI{27}{MHz}     & \SI{37,04}{ns} & L\'{o}gica del m\'{o}dem (TX/RX/Canal) \\
+\texttt{clk\_pixel}  & \SI{74,25}{MHz}  & \SI{13,47}{ns} & Pixel clock 720p60 \\
+\texttt{clk\_serial} & \SI{371,25}{MHz} & \SI{2,69}{ns}  & Serializador TMDS 10:1 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Cruce de Dominios (CDC)}
+
+La transici\'{o}n de datos entre \texttt{clk\_dsp} y \texttt{clk\_pixel}
+se realiza en el m\'{o}dulo \texttt{constellation\_renderer} mediante un
+sincronizador de doble flip-flop para la se\~{n}al \texttt{sym\_valid}:
+
+\begin{lstlisting}[caption={Sincronizador de 2-FF para CDC.}]
+logic sym_valid_sync0, sym_valid_sync1, sym_valid_sync2;
+
+always_ff @(posedge clk_pixel or negedge rst_n) begin
+    if (!rst_n) begin
+        sym_valid_sync0 <= 1'b0;
+        sym_valid_sync1 <= 1'b0;
+        sym_valid_sync2 <= 1'b0;
+    end else begin
+        sym_valid_sync0 <= sym_valid;
+        sym_valid_sync1 <= sym_valid_sync0;
+        sym_valid_sync2 <= sym_valid_sync1;
+    end
+end
+
+wire sym_pulse = sym_valid_sync1 && !sym_valid_sync2;  // Rising edge
+\end{lstlisting}
+
+Las coordenadas I/Q se muestrean en el dominio lento (\SI{27}{MHz}) y son
+estables durante m\'{u}ltiples ciclos de \texttt{clk\_pixel}, por lo que
+se capturan directamente tras detectar el flanco sincronizado.
+
+
+% ============================================================================
+\section{Renderizador de Constelaci\'{o}n}
+\label{sec:renderer}
+% ============================================================================
+
+El m\'{o}dulo \texttt{constellation\_renderer} convierte las muestras IQ
+demoduladas en una imagen de v\'{\i}deo \SI{720}{p} (1280$\times$720) a
+\SI{60}{Hz}.
+
+\subsection{Conversi\'{o}n de Coordenadas Q1.11 a P\'{\i}xel}
+
+Los valores I y Q en formato Q1.11 (rango $[-2048, +2047]$) se escalan a
+un \'{a}rea de dibujo de $640 \times 640$ p\'{\i}xeles centrada en la
+pantalla:
+
+\begin{align}
+    x_{\text{pixel}} &= 640 + \left\lfloor \frac{I}{16} \right\rfloor
+                      = 640 + (I \gg 4) \\
+    y_{\text{pixel}} &= 360 - \left\lfloor \frac{Q}{16} \right\rfloor
+                      = 360 - (Q \gg 4)
+\end{align}
+
+La divisi\'{o}n por 16 (desplazamiento de 4 bits) mapea el rango
+$[-2048, +2047]$ a $[-128, +127]$ p\'{\i}xeles respecto al centro. El eje
+Y se invierte porque las coordenadas de pantalla crecen hacia abajo.
+
+\subsection{T\'{e}cnica de Dibujado de Puntos}
+
+Sin memoria de \textit{frame buffer}, el renderizado es directo:
+
+\begin{enumerate}
+    \item Se almacenan las \'{u}ltimas 64 coordenadas de s\'{\i}mbolos
+          recibidos en un buffer circular.
+    \item Al inicio de cada cuadro (flanco de \texttt{vsync}), el buffer
+          se invalida para simular decaimiento temporal.
+    \item Durante el barrido activo, si la posici\'{o}n $(h, v)$ del
+          p\'{\i}xel actual coincide con alguna coordenada almacenada
+          $\pm 1$ (punto de $2 \times 2$ p\'{\i}xeles), se genera blanco;
+          de lo contrario, negro.
+\end{enumerate}
+
+El resultado es una constelaci\'{o}n con persistencia de un cuadro
+($\approx$\SI{16,7}{ms}), suficiente para visualizaci\'{o}n humana.
+
+\subsection{Rejilla de Referencia}
+
+Adem\'{a}s de los puntos de s\'{\i}mbolo, se dibujan l\'{\i}neas de
+referencia (gris oscuro):
+
+\begin{itemize}
+    \item \textbf{Ejes}: l\'{\i}neas horizontal y vertical por el centro.
+    \item \textbf{L\'{\i}mites de decisi\'{o}n}: l\'{\i}neas en
+          $x, y = \pm 81$ p\'{\i}xeles (correspondientes a $\pm 1296$ en
+          Q1.11, punto medio entre niveles QAM adyacentes).
+    \item \textbf{Borde del \'{a}rea de dibujo}: rect\'{a}ngulo
+          $640 \times 640$.
+\end{itemize}
+
+
+% ============================================================================
+\section{Transmisor HDMI (TMDS)}
+\label{sec:hdmi_tx}
+% ============================================================================
+
+El m\'{o}dulo \texttt{hdmi\_tx} implementa la codificaci\'{o}n TMDS
+(\textit{Transition-Minimized Differential Signaling}) requerida por el
+est\'{a}ndar DVI/HDMI.
+
+\subsection{Codificaci\'{o}n 8b/10b}
+
+Cada canal de color (R, G, B) pasa por un codificador 8b/10b que:
+
+\begin{enumerate}
+    \item Calcula el n\'{u}mero de unos en el byte de entrada.
+    \item Decide entre codificaci\'{o}n XOR o XNOR para minimizar
+          transiciones.
+    \item Aplica inversi\'{o}n condicional para mantener el balance DC
+          ($\pm 0$ acumulado de unos y ceros).
+\end{enumerate}
+
+Durante el intervalo de \textit{blanking}, se transmiten s\'{\i}mbolos de
+control que codifican \texttt{hsync} y \texttt{vsync}.
+
+\subsection{Serializaci\'{o}n 10:1}
+
+Los 10 bits TMDS se serializan a \SI{371,25}{MHz} usando un registro de
+desplazamiento. LSB se transmite primero. En s\'{\i}ntesis para Gowin, se
+emplear\'{\i}a el primitivo \texttt{OSER10} para eficiencia.
+
+\subsection{Salida Diferencial}
+
+Las se\~{n}ales serializadas se env\'{\i}an a pads configurados como
+\texttt{LVCMOS33D}, que emulan LVDS con swing reducido. Los pines de
+salida son:
+
+\begin{table}[H]
+\centering
+\caption{Pinout HDMI en Tang Nano 9K.}
+\label{tab:hdmi_pins}
+\begin{tabular}{@{}llc@{}}
+\toprule
+\textbf{Se\~{n}al} & \textbf{Pin (P/N)} & \textbf{Funci\'{o}n} \\
+\midrule
+\texttt{tmds\_clk}    & 69 / 68 & Pixel clock codificado \\
+\texttt{tmds\_data[0]} & 71 / 70 & Canal Azul (+ sync) \\
+\texttt{tmds\_data[1]} & 73 / 72 & Canal Verde \\
+\texttt{tmds\_data[2]} & 75 / 74 & Canal Rojo \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+% ============================================================================
+\section{Interfaz F\'{\i}sica: Botones y LEDs}
+\label{sec:io}
+% ============================================================================
+
+\subsection{Control de Ruido mediante Bot\'{o}n S1}
+
+El bot\'{o}n S1 (activo bajo, con pull-up interno) cicla el par\'{a}metro
+\texttt{noise\_magnitude} entre cuatro niveles predefinidos:
+
+\[
+    0 \to 20 \to 50 \to 100 \to 0 \to \cdots
+\]
+
+Se implementa un antirrebote de \SI{20}{ms} mediante un contador de 19
+bits:
+
+\begin{lstlisting}[caption={L\'{o}gica de antirrebote.}]
+logic [18:0] debounce_cnt;
+always_ff @(posedge clk_dsp or negedge sys_rst_n) begin
+    if (!sys_rst_n) begin
+        debounce_cnt <= '0;
+        btn_stable   <= 1'b1;
+    end else begin
+        if (btn_sync1 != btn_stable) begin
+            if (debounce_cnt == 19'h7FFFF)
+                btn_stable <= btn_sync1;
+            else
+                debounce_cnt <= debounce_cnt + 1'b1;
+        end else begin
+            debounce_cnt <= '0;
+        end
+    end
+end
+\end{lstlisting}
+
+\subsection{Indicadores LED}
+
+Los 6 LEDs de la placa (activos bajos) muestran:
+
+\begin{table}[H]
+\centering
+\caption{Asignaci\'{o}n de LEDs.}
+\label{tab:leds}
+\begin{tabular}{@{}cl@{}}
+\toprule
+\textbf{LED} & \textbf{Funci\'{o}n} \\
+\midrule
+\texttt{led[0]} & Latido (\textit{heartbeat}), $\approx$\SI{0,8}{Hz} \\
+\texttt{led[1]} & Lock del lazo Costas (encendido = sincronizado) \\
+\texttt{led[3:2]} & Nivel de ruido en binario (00, 01, 10, 11) \\
+\texttt{led[4]} & Lock del PLL (encendido = estable) \\
+\texttt{led[5]} & Reservado (apagado) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+% ============================================================================
+\section{Archivo de Restricciones de Pines}
+\label{sec:constraints}
+% ============================================================================
+
+El archivo \texttt{constraints/tangnano9k.cst} define la asignaci\'{o}n
+de pines para la placa Tang Nano 9K:
+
+\begin{lstlisting}[language={}, caption={Extracto de tangnano9k.cst.}]
+// Reloj 27 MHz
+IO_LOC  "clk_27m" 52;
+IO_PORT "clk_27m" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
+
+// Reset (boton S2)
+IO_LOC  "rst_n" 4;
+IO_PORT "rst_n" IO_TYPE=LVCMOS18 PULL_MODE=UP;
+
+// Boton usuario S1
+IO_LOC  "btn_user" 3;
+IO_PORT "btn_user" IO_TYPE=LVCMOS18 PULL_MODE=UP;
+
+// HDMI diferencial
+IO_LOC  "tmds_clk_p" 69;
+IO_LOC  "tmds_clk_n" 68;
+IO_PORT "tmds_clk_p" IO_TYPE=LVCMOS33D DRIVE=8;
+...
+\end{lstlisting}
+
+El archivo \texttt{constraints/timing.sdc} establece las restricciones
+temporales para el an\'{a}lisis de \textit{timing closure}:
+
+\begin{lstlisting}[language={}, caption={Extracto de timing.sdc.}]
+create_clock -name clk_27m -period 37.037 [get_ports {clk_27m}]
+create_clock -name clk_pixel -period 13.468 [get_pins {u_pll/clkout1}]
+create_clock -name clk_serial -period 2.694 [get_pins {u_pll/clkout2}]
+set_clock_groups -asynchronous -group {clk_27m} -group {clk_pixel clk_serial}
+set_false_path -from [get_ports {rst_n btn_user}]
+\end{lstlisting}
+
+
+% ============================================================================
+\section{Validaci\'{o}n del Sistema Integrado}
+\label{sec:validation}
+% ============================================================================
+
+\subsection{Testbench de Integraci\'{o}n}
+
+El testbench \texttt{tb\_gdsp\_top.sv} verifica:
+
+\begin{enumerate}
+    \item Compilaci\'{o}n sin errores de todos los m\'{o}dulos.
+    \item El modelo de PLL genera clocks simulados.
+    \item La cadena DSP produce s\'{\i}mbolos demodulados.
+    \item El lazo Costas alcanza lock en un tiempo razonable.
+    \item El bot\'{o}n cicla correctamente los niveles de ruido.
+\end{enumerate}
+
+\subsection{Resultados Esperados}
+
+Con \texttt{noise\_magnitude = 0}, el sistema debe alcanzar lock en
+aproximadamente 300--400 s\'{\i}mbolos (como en Fase~3). Al incrementar
+el ruido, la constelaci\'{o}n visualizada mostrar\'{a} mayor dispersi\'{o}n,
+pero el lock debe mantenerse hasta niveles de ruido moderados ($\leq 50$).
+
+
+% ============================================================================
+\section{Resumen de Recursos}
+\label{sec:resources}
+% ============================================================================
+
+La Tabla~\ref{tab:resources} presenta una estimaci\'{o}n del uso de
+recursos basada en s\'{\i}ntesis preliminar con Gowin EDA:
+
+\begin{table}[H]
+\centering
+\caption{Estimaci\'{o}n de recursos del sistema completo.}
+\label{tab:resources}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+\textbf{Recurso} & \textbf{Usado} & \textbf{Disponible} & \textbf{\%} \\
+\midrule
+LUTs              & $\sim$5200  & 8640   & 60\% \\
+Flip-Flops        & $\sim$2800  & 6480   & 43\% \\
+DSP (MULT9)       & 8           & 20     & 40\% \\
+BSRAM (18kb)      & 4           & 26     & 15\% \\
+PLL               & 1           & 2      & 50\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Nota}: Los valores son estimaciones. El uso real puede variar
+seg\'{u}n opciones de optimizaci\'{o}n del sintetizador.
+
+
+% ============================================================================
+\section{Conclusiones de la Fase 4}
+\label{sec:conclusions}
+% ============================================================================
+
+La Fase~4 completa el proyecto G-DSP Engine integrando todos los
+subsistemas en un demostrador funcional sobre Tang Nano~9K:
+
+\begin{itemize}
+    \item \textbf{Cadena completa}: PRBS $\to$ QAM $\to$ RRC(TX) $\to$
+          AWGN $\to$ RRC(RX) $\to$ Gardner $\to$ Costas $\to$ HDMI.
+    \item \textbf{Visualizaci\'{o}n en tiempo real}: constelaci\'{o}n IQ
+          renderizada a \SI{720}{p}@\SI{60}{Hz} sin memoria externa.
+    \item \textbf{Interacci\'{o}n f\'{\i}sica}: control de ruido por
+          bot\'{o}n, indicadores LED de estado.
+    \item \textbf{Gesti\'{o}n de m\'{u}ltiples relojes}: PLL con tres
+          salidas, CDC con doble FF.
+\end{itemize}
+
+El sistema est\'{a} listo para demostraci\'{o}n pr\'{a}ctica, mostrando
+visualmente el efecto del ruido sobre la constelaci\'{o}n 16-QAM y la
+capacidad del receptor para mantener sincronizaci\'{o}n.
+
+
+% ============================================================================
+\section*{Referencias}
+% ============================================================================
+
+\begin{enumerate}[label={[\arabic*]}]
+    \item DVI Specification, Revision 1.0, Digital Display Working Group, 1999.
+    \item CEA-861-F, ``A DTV Profile for Uncompressed High Speed Digital
+          Interfaces,'' Consumer Electronics Association, 2013.
+    \item Sipeed Tang Nano 9K Schematic, v3.2.
+    \item Gowin GW1NR-LV9 Device Datasheet, DS861, 2023.
+    \item Gowin Primitives User Guide, UG289, 2023.
+\end{enumerate}
+
+% ============================================================================
+\end{document}
+% ============================================================================

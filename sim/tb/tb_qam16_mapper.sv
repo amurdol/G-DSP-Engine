@@ -112,7 +112,7 @@ module tb_qam16_mapper;
     // Main test sequence
     // -----------------------------------------------------------------------
     initial begin
-        $dumpfile("tb_qam16_mapper.vcd");
+        $dumpfile("sim/waves/tb_qam16_mapper.vcd");
         $dumpvars(0, tb_qam16_mapper);
 
         // Reset

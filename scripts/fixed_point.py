@@ -1,6 +1,12 @@
 # ============================================================================
 # G-DSP Engine — Fixed-Point Utilities
 # ============================================================================
+# *** SOURCE OF TRUTH ***
+# This module defines the authoritative fixed-point format (Q1.11) and
+# conversion functions used by both the Python golden model and verified
+# against the RTL implementation. Any changes here must be reflected in
+# rtl/packages/gdsp_pkg.sv.
+# ============================================================================
 # Provides Qn.m quantisation, saturation, rounding, and export to Verilog-
 # compatible formats (.hex, .mem, .v include).
 #

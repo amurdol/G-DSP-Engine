@@ -1,6 +1,11 @@
 # ============================================================================
 # G-DSP Engine — Python Golden Model (Phase 0)
 # ============================================================================
+# *** SOURCE OF TRUTH FOR TESTBENCHES ***
+# This script is the bit-true reference for the FPGA implementation.
+# All RTL testbenches load vectors generated here from sim/vectors/.
+# Parameters: Q1.11 (12-bit), RRC α=0.25, 33 taps, SPS=4, 16-QAM Gray.
+# ============================================================================
 # This script is the bit-true reference for the FPGA implementation.
 # It generates, modulates, filters, and exports all data needed for
 # hardware verification.

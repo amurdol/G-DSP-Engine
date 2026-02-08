@@ -98,6 +98,27 @@ $tests = @(
             "rtl/modem/rx_top.sv",
             "sim/tb/tb_rx_top.sv"
         )
+    },
+    @{
+        Name    = "GDSP Top (Phase 4 integration)"
+        VVP     = "sim/out/tb_gdsp_top.vvp"
+        Flags   = @("-g2012", "-DSIMULATION", "-I", "sim/vectors")
+        Sources = @(
+            "rtl/packages/gdsp_pkg.sv",
+            "rtl/common/bit_gen.sv",
+            "rtl/modem/qam16_mapper.sv",
+            "rtl/modem/rrc_filter.sv",
+            "rtl/modem/tx_top.sv",
+            "rtl/channel/awgn_generator.sv",
+            "rtl/channel/awgn_channel.sv",
+            "rtl/sync/gardner_ted.sv",
+            "rtl/sync/costas_loop.sv",
+            "rtl/modem/rx_top.sv",
+            "rtl/video/constellation_renderer.sv",
+            "rtl/video/hdmi_tx.sv",
+            "rtl/top/gdsp_top.sv",
+            "sim/tb/tb_gdsp_top.sv"
+        )
     }
 )
 
@@ -118,9 +139,10 @@ foreach ($t in $tests) {
     $name = $t.Name
     Write-Host "--- [$name] ---" -ForegroundColor Yellow
 
-    # Compile
+    # Compile (use custom flags if defined, else default)
     Write-Host "  Compiling..." -NoNewline
-    $compileArgs = $IVERILOG_FLAGS + @("-o", $t.VVP) + $t.Sources
+    $flags = if ($t.Flags) { $t.Flags } else { $IVERILOG_FLAGS }
+    $compileArgs = $flags + @("-o", $t.VVP) + $t.Sources
     & iverilog @compileArgs 2>&1 | Out-Null
 
     if (-not (Test-Path $t.VVP)) {
@@ -135,7 +157,7 @@ foreach ($t in $tests) {
     $simOutput = & vvp $t.VVP 2>&1 | Out-String
 
     # Check for PASS/FAIL in output
-    if ($simOutput -match "ALL.*PASSED|Simulation Complete|All channel tests completed") {
+    if ($simOutput -match "ALL.*PASSED|Simulation Complete|All channel tests completed|Stress Test Passed") {
         Write-Host " PASS" -ForegroundColor Green
         $pass++
     } else {

@@ -206,7 +206,7 @@ module tb_rrc_filter;
     // Main test sequence
     // -----------------------------------------------------------------------
     initial begin
-        $dumpfile("tb_rrc_filter.vcd");
+        $dumpfile("sim/waves/tb_rrc_filter.vcd");
         $dumpvars(0, tb_rrc_filter);
 
         din       = '0;
