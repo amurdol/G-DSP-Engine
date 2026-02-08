@@ -39,10 +39,10 @@ module gdsp_top
     logic                     sym_tick;
     logic [BITS_PER_SYM-1:0]  tx_bits;
     logic                     bits_valid;
-    sample_t                  tx_I, tx_Q;
+    sample_t                  map_I, map_Q;
     logic                     mapper_valid;
     sample_t                  shaped_I, shaped_Q;
-    logic                     shaped_valid;
+    logic                     shaped_I_valid, shaped_Q_valid;
     sample_t                  rx_I, rx_Q;
     logic                     rx_valid;
 
@@ -90,46 +90,47 @@ module gdsp_top
     );
 
     qam16_mapper u_mapper (
-        .clk      (clk),
-        .rst_n    (rst_n),
-        .en       (bits_valid),
-        .bits_in  (tx_bits),
-        .I_out    (tx_I),
-        .Q_out    (tx_Q),
-        .valid    (mapper_valid)
+        .clk       (clk),
+        .rst_n     (rst_n),
+        .sym_in    (tx_bits),
+        .sym_valid (bits_valid),
+        .I_out     (map_I),
+        .Q_out     (map_Q),
+        .iq_valid  (mapper_valid)
     );
 
     rrc_filter u_rrc_tx_I (
-        .clk      (clk),
-        .rst_n    (rst_n),
-        .en       (1'b1),
-        .din      (mapper_valid ? tx_I : 12'sd0),
-        .dout     (shaped_I),
-        .valid    (shaped_valid)
+        .clk        (clk),
+        .rst_n      (rst_n),
+        .din        (mapper_valid ? map_I : 12'sd0),
+        .din_valid  (1'b1),
+        .dout       (shaped_I),
+        .dout_valid (shaped_I_valid)
     );
 
     rrc_filter u_rrc_tx_Q (
-        .clk      (clk),
-        .rst_n    (rst_n),
-        .en       (1'b1),
-        .din      (mapper_valid ? tx_Q : 12'sd0),
-        .dout     (shaped_Q),
-        .valid    ()
+        .clk        (clk),
+        .rst_n      (rst_n),
+        .din        (mapper_valid ? map_Q : 12'sd0),
+        .din_valid  (1'b1),
+        .dout       (shaped_Q),
+        .dout_valid (shaped_Q_valid)
     );
 
     // ========================================================================
     // AWGN Channel
     // ========================================================================
-    awgn_channel u_channel (
+    channel_top u_channel (
         .clk             (clk),
         .rst_n           (rst_n),
-        .en              (shaped_valid),
+        .en              (shaped_I_valid),
         .tx_I            (shaped_I),
         .tx_Q            (shaped_Q),
+        .tx_valid        (shaped_I_valid),
         .noise_magnitude (noise_mag),
         .rx_I            (rx_I),
         .rx_Q            (rx_Q),
-        .valid           (rx_valid)
+        .rx_valid        (rx_valid)
     );
 
     // ========================================================================
@@ -145,11 +146,11 @@ module gdsp_top
     end
 
     assign led[0] = ~heartbeat_cnt[24];   // ~0.8 Hz heartbeat
-    assign led[1] = ~sym_tick;
-    assign led[2] = ~shaped_valid;
+    assign led[1] = ~(^rx_I);             // XOR-reduce: keeps TX+channel alive
+    assign led[2] = ~(^rx_Q);             // XOR-reduce: keeps Q path alive
     assign led[3] = ~rx_valid;
     assign led[4] = btn_sync_r2;           // Pressed=low=LED on
-    assign led[5] = 1'b1;                  // Off (reserved)
+    assign led[5] = ~(^shaped_I);          // XOR-reduce: keeps RRC alive
 
     // ========================================================================
     // HDMI Stub (Phase 4)

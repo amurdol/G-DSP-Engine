@@ -3,6 +3,17 @@
 <Project>
     <Template>FPGA</Template>
     <Version>5</Version>
-    <Device name="" pn="">gw1nr9c-004</Device>
-    <FileList/>
+    <Device name="GW1NR-9C" pn="GW1NR-LV9QN88PC6/I5">gw1nr9c-004</Device>
+    <FileList>
+        <File path="../../rtl/packages/gdsp_pkg.sv" type="file.verilog" enable="1"/>
+        <File path="../../rtl/common/bit_gen.sv" type="file.verilog" enable="1"/>
+        <File path="../../rtl/modem/qam16_mapper.sv" type="file.verilog" enable="1"/>
+        <File path="../../rtl/modem/rrc_filter.sv" type="file.verilog" enable="1"/>
+        <File path="../../rtl/channel/awgn_generator.sv" type="file.verilog" enable="1"/>
+        <File path="../../rtl/channel/awgn_channel.sv" type="file.verilog" enable="1"/>
+        <File path="../../rtl/top/gdsp_top.sv" type="file.verilog" enable="1"/>
+        <File path="../../sim/vectors/rrc_coeffs.v" type="file.verilog" enable="1"/>
+        <File path="../../constraints/tangnano9k.cst" type="file.cst" enable="1"/>
+        <File path="../../constraints/timing.sdc" type="file.sdc" enable="1"/>
+    </FileList>
 </Project>

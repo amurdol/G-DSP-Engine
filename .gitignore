@@ -28,6 +28,7 @@ sim/out/
 # --- Gowin EDA ---
 gowin/**/impl/
 gowin/**/temp/
+gowin/**/src/
 *.gprj.user
 *.log
 *.rpt
