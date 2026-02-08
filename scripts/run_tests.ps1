@@ -81,6 +81,23 @@ $tests = @(
             "rtl/channel/awgn_channel.sv",
             "sim/tb/tb_channel.sv"
         )
+    },
+    @{
+        Name    = "RX Top (full modem chain)"
+        VVP     = "sim/out/tb_rx_top.vvp"
+        Sources = @(
+            "rtl/packages/gdsp_pkg.sv",
+            "rtl/common/bit_gen.sv",
+            "rtl/modem/qam16_mapper.sv",
+            "rtl/modem/rrc_filter.sv",
+            "rtl/modem/tx_top.sv",
+            "rtl/channel/awgn_generator.sv",
+            "rtl/channel/awgn_channel.sv",
+            "rtl/sync/gardner_ted.sv",
+            "rtl/sync/costas_loop.sv",
+            "rtl/modem/rx_top.sv",
+            "sim/tb/tb_rx_top.sv"
+        )
     }
 )
 
