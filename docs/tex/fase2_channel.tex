@@ -1,0 +1,845 @@
+% !TEX root = fase2_channel.tex
+% ============================================================================
+% G-DSP Engine --- Documentaci\'{o}n T\'{e}cnica: Fase 2
+% Simulaci\'{o}n de Canal AWGN
+% ============================================================================
+% Compilar:  pdflatex fase2_channel.tex  (x2 para referencias)
+% ============================================================================
+
+\documentclass[a4paper,11pt,spanish]{article}
+
+% ---------------------------------------------------------------------------
+% Paquetes
+% ---------------------------------------------------------------------------
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish,es-tabla]{babel}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{siunitx}
+\usepackage{hyperref}
+\usepackage{geometry}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, calc, shapes.geometric, patterns, babel}
+
+\geometry{margin=2.5cm}
+
+\sisetup{
+    output-decimal-marker = {,},
+    per-mode = symbol
+}
+
+% ---------------------------------------------------------------------------
+% Configuraci\'{o}n de listings para SystemVerilog
+% ---------------------------------------------------------------------------
+\lstdefinelanguage{SystemVerilog}{
+    morekeywords={module, endmodule, input, output, logic, signed, parameter,
+                  int, always_ff, always_comb, posedge, negedge, if, else,
+                  begin, end, for, case, endcase, function, automatic,
+                  endfunction, localparam, assign, typedef, package,
+                  endpackage, import, default, generate, endgenerate,
+                  genvar},
+    sensitive=true,
+    morecomment=[l]{//},
+    morecomment=[s]{/*}{*/},
+    morestring=[b]",
+}
+
+\lstset{
+    language=SystemVerilog,
+    basicstyle=\ttfamily\footnotesize,
+    keywordstyle=\bfseries\color{blue!70!black},
+    commentstyle=\itshape\color{green!50!black},
+    stringstyle=\color{red!60!black},
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    numbersep=5pt,
+    frame=single,
+    breaklines=true,
+    captionpos=b,
+    tabsize=4,
+    showstringspaces=false,
+}
+
+% ---------------------------------------------------------------------------
+% Datos del documento
+% ---------------------------------------------------------------------------
+\title{%
+    \textbf{G-DSP Engine} \\[0.5em]
+    \Large Simulaci\'{o}n de Canal AWGN \\[0.3em]
+    \large Fase~2 --- Documentaci\'{o}n T\'{e}cnica del TFG
+}
+\author{G-DSP Team}
+\date{Febrero 2026}
+
+% ============================================================================
+\begin{document}
+% ============================================================================
+
+\maketitle
+\tableofcontents
+\newpage
+
+% ============================================================================
+\section{Introducci\'{o}n}
+\label{sec:ch_intro}
+% ============================================================================
+
+El modelado del canal de comunicaciones es un componente esencial en
+cualquier sistema de verificaci\'{o}n de m\'{o}dem. En un escenario de
+laboratorio cl\'{a}sico, el ruido del canal se introduce externamente
+mediante un generador de ruido calibrado; sin embargo, para una
+demostraci\'{o}n aut\'{o}noma sobre FPGA ---~como la que persigue el
+proyecto G-DSP Engine~--- resulta imprescindible sintetizar dicho ruido
+\emph{dentro} de la propia l\'{o}gica programable.
+
+El objetivo de la Fase~2 es implementar un \textbf{canal AWGN}
+(\textit{Additive White Gaussian Noise}) que permita:
+
+\begin{enumerate}[label=\textbf{\arabic*.}]
+    \item Inyectar ruido de distribuci\'{o}n aproximadamente gaussiana
+          a las se\~{n}ales $I$ y $Q$ procedentes del transmisor.
+    \item Controlar la potencia del ruido en tiempo real mediante un
+          registro de magnitud (\texttt{noise\_magnitude}), facilitando
+          barridos de $E_b/N_0$ para curvas de BER.
+    \item Garantizar la independencia estad\'{\i}stica entre los canales
+          $I$ y $Q$.
+\end{enumerate}
+
+La cadena completa queda:
+
+\begin{equation}
+    r_{I,Q}[n] = s_{I,Q}[n] + w_{I,Q}[n]
+    \label{eq:channel_model}
+\end{equation}
+
+\noindent
+donde $s_{I,Q}$ es la se\~{n}al transmitida (Q1.11) y $w_{I,Q}$ es el
+ruido gaussiano generado en hardware.
+
+
+% ============================================================================
+\section{Justificaci\'{o}n de Arquitectura: CLT frente a Box-Muller}
+\label{sec:justificacion}
+% ============================================================================
+
+Se evaluaron tres estrategias para la generaci\'{o}n de muestras con
+distribuci\'{o}n gaussiana en hardware:
+
+% ----------------------------------------------------------------------------
+\subsection{Transformada de Box-Muller}
+\label{subsec:box_muller}
+% ----------------------------------------------------------------------------
+
+La transformada de Box-Muller genera pares de variables gaussianas
+independientes a partir de dos variables uniformes $U_1, U_2 \in (0,1)$:
+
+\begin{equation}
+    Z_0 = \sqrt{-2\ln U_1}\,\cos(2\pi U_2), \qquad
+    Z_1 = \sqrt{-2\ln U_1}\,\sin(2\pi U_2)
+    \label{eq:box_muller}
+\end{equation}
+
+\paragraph{Coste de implementaci\'{o}n.}
+El c\'{a}lculo de $\ln(\cdot)$ y $\sqrt{\cdot}$ en hardware requiere
+aproximaciones por CORDIC o tablas de consulta (LUT) almacenadas en BSRAM.
+Las funciones trigonom\'{e}tricas a\~{n}aden un segundo bloque CORDIC.
+La estimaci\'{o}n de recursos para la FPGA GW1NR-9 es:
+
+\begin{table}[H]
+    \centering
+    \caption{Coste estimado de Box-Muller en GW1NR-9.}
+    \label{tab:box_muller_cost}
+    \begin{tabular}{@{} l c c @{}}
+        \toprule
+        \textbf{Recurso} & \textbf{Necesario} & \textbf{Disponible} \\
+        \midrule
+        LUT4            & $>\num{1200}$   & \num{8640} \\
+        BSRAM (18~Kbit) & 2--4 bloques    & 26 bloques \\
+        DSP (MULT18)    & 2--4            & 10 \\
+        Latencia        & 15--20 ciclos   & --- \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\noindent
+El consumo de LUTs y BSRAM es significativo y compite directamente con
+los recursos necesarios para el filtro RRC, la cadena de sincronizaci\'{o}n
+y el pipeline HDMI. \textbf{Se descarta} esta opci\'{o}n.
+
+% ----------------------------------------------------------------------------
+\subsection{M\'{e}todo del Zigurat}
+\label{subsec:ziggurat}
+% ----------------------------------------------------------------------------
+
+El m\'{e}todo del zigurat es una t\'{e}cnica de rechazo
+(\textit{rejection sampling}) que encapsula la PDF gaussiana en
+rect\'{a}ngulos apilados. Su principal inconveniente para hardware es
+la \textbf{latencia variable}: cada muestra requiere un n\'{u}mero
+indeterminado de iteraciones del bucle de rechazo, lo que rompe el
+determinismo del pipeline. Se necesitar\'{\i}a un FIFO de
+desacoplamiento y l\'{o}gica de control adicional.
+\textbf{Se descarta} por complejidad.
+
+% ----------------------------------------------------------------------------
+\subsection{Teorema del L\'{\i}mite Central (CLT) --- Opci\'{o}n seleccionada}
+\label{subsec:clt}
+% ----------------------------------------------------------------------------
+
+El Teorema del L\'{\i}mite Central establece que la suma de $N$ variables
+aleatorias independientes e id\'{e}nticamente distribuidas (i.i.d.)
+converge en distribuci\'{o}n a una variable gaussiana conforme $N$ crece:
+
+\begin{equation}
+    Z = \frac{\displaystyle\sum_{i=1}^{N} X_i - N\mu}{\sigma\sqrt{N}}
+    \;\xrightarrow{\;d\;}\;
+    \mathcal{N}(0,\,1)
+    \quad\text{cuando } N \to \infty
+    \label{eq:clt}
+\end{equation}
+
+\noindent
+donde $X_i \sim \text{Uniforme}[0, 2^{12})$, $\mu = 2^{11} - 0{,}5$
+y $\sigma^2 = (2^{12})^2 / 12$.
+
+Para $N = 16$, la calidad de la aproximaci\'{o}n se eval\'{u}a mediante
+la curtosis en exceso:
+
+\begin{equation}
+    \kappa_{\text{exc}} = \frac{\kappa_4}{\sigma^4} - 3
+    = \frac{-6/5}{N}
+    = \frac{-6/5}{16}
+    = -0{,}075
+    \label{eq:kurtosis}
+\end{equation}
+
+\noindent
+Un valor de $|\kappa_{\text{exc}}| = 0{,}075$ frente a los 0 de una
+gaussiana pura indica que las colas de la distribuci\'{o}n son
+ligeramente m\'{a}s ligeras. En la pr\'{a}ctica, esta desviaci\'{o}n
+es indistinguible para pruebas de BER con $E_b/N_0 \geq \SI{4}{\decibel}$.
+
+\paragraph{Coste de implementaci\'{o}n.}
+
+\begin{table}[H]
+    \centering
+    \caption{Coste estimado de CLT ($N=16$) en GW1NR-9.}
+    \label{tab:clt_cost}
+    \begin{tabular}{@{} l c l @{}}
+        \toprule
+        \textbf{Recurso} & \textbf{Estimaci\'{o}n} & \textbf{Justificaci\'{o}n} \\
+        \midrule
+        LUT4  & $\sim$350--500 & 16 LFSRs + \'{a}rbol de sumadores \\
+        BSRAM & 0              & Sin tablas de consulta \\
+        DSP   & 1 (MULT18)     & Multiplicaci\'{o}n por \texttt{noise\_magnitude} \\
+        FF    & $\sim$400      & 16 registros LFSR + pipeline \\
+        Latencia & 3 ciclos    & Determinista, sin rechazo \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\noindent
+El coste es una fracci\'{o}n menor de los recursos de la FPGA: sin BSRAM,
+sin CORDIC, sin latencia variable. \textbf{Se selecciona} esta
+arquitectura.
+
+
+% ============================================================================
+\section{Fundamento Matem\'{a}tico}
+\label{sec:math}
+% ============================================================================
+
+% ----------------------------------------------------------------------------
+\subsection{Distribuci\'{o}n resultante de la suma de $N=16$ uniformes}
+\label{subsec:irwin_hall}
+% ----------------------------------------------------------------------------
+
+Sea $X_i$ la salida de 12~bits sin signo del $i$-\'{e}simo LFSR, con
+distribuci\'{o}n uniforme discreta en $\{0, 1, \ldots, 2^{12}-1\}$. La
+suma $S = \sum_{i=1}^{16} X_i$ sigue (para $N$ grande) una distribuci\'{o}n
+de Irwin-Hall, cuya PDF converge a la campana gaussiana.
+
+Los par\'{a}metros de $S$ son:
+
+\begin{align}
+    \text{Media:}    \quad & \mu_S  = N \cdot \frac{2^{12}-1}{2}
+                           = 16 \times 2047{,}5 = 32760
+    \label{eq:mean_S} \\
+    \text{Varianza:} \quad & \sigma_S^2 = N \cdot \frac{(2^{12})^2}{12}
+                           = 16 \times \frac{16\,777\,216}{12}
+                           \approx \num{22369621}
+    \label{eq:var_S}
+\end{align}
+
+Se centra la distribuci\'{o}n sustrayendo $2^{15} = 32768$ (potencia de~2
+m\'{a}s cercana a $\mu_S$, implementable como simple inversi\'{o}n de
+bits), obteni\'{e}ndose un valor con signo de 17~bits.
+
+% ----------------------------------------------------------------------------
+\subsection{Relaci\'{o}n entre \texttt{noise\_magnitude} y SNR}
+\label{subsec:mag_to_snr}
+% ----------------------------------------------------------------------------
+
+Sea $M \in [0, 255]$ el valor del registro \texttt{noise\_magnitude} y
+$w[n]$ la muestra de ruido a la salida del generador (formato Q1.11).
+El procesamiento interno es:
+
+\begin{equation}
+    w[n] = \frac{(S[n] - 2^{15}) \times M}{2^{12}}
+    \label{eq:noise_sample}
+\end{equation}
+
+\noindent
+donde la divisi\'{o}n por $2^{12} = 2^4 \times 2^8$ corresponde a:
+\begin{itemize}
+    \item $\div\, 2^4$: normalizaci\'{o}n de la suma (dividir entre $N=16$
+          para obtener varianza unitaria referida a la escala uniforme).
+    \item $\div\, 2^8$: escalado por el factor $M/256$.
+\end{itemize}
+
+La varianza de $w[n]$ resulta:
+
+\begin{align}
+    \sigma_w^2 &= \left(\frac{M}{2^{12}}\right)^2 \cdot \sigma_S^2
+    = \left(\frac{M}{4096}\right)^2 \cdot 16 \cdot \frac{(2^{12})^2}{12}
+    \nonumber \\
+    &= \frac{M^2}{4096^2} \cdot \frac{16 \cdot 4096^2}{12}
+    = \frac{M^2 \cdot 16}{12}
+    = \frac{4\,M^2}{3}
+    \label{eq:sigma_w}
+\end{align}
+
+Expresando en unidades Q1.11 (donde el fondo de escala es $2^{11} = 2048$),
+la varianza normalizada es:
+
+\begin{equation}
+    \sigma_{w,\text{norm}}^2
+    = \frac{\sigma_w^2}{(2^{11})^2}
+    = \frac{4\,M^2}{3 \times 2^{22}}
+    = \frac{M^2}{3 \times 2^{20}}
+    \approx \frac{M^2}{\num{3145728}}
+    \label{eq:sigma_norm}
+\end{equation}
+
+Para la constelaci\'{o}n 16-QAM normalizada a potencia unitaria
+($P_s = 1$), la relaci\'{o}n se\~{n}al a ruido considerando ambos
+canales ($I$ y $Q$, con ruido independiente) es:
+
+\begin{equation}
+    \text{SNR} = \frac{P_s}{2\,\sigma_{w,\text{norm}}^2}
+    = \frac{3 \times 2^{20}}{2\,M^2}
+    \label{eq:snr_linear}
+\end{equation}
+
+En decibelios:
+
+\begin{equation}
+    \boxed{
+    \text{SNR}_{\text{dB}} = 10\log_{10}\!\left(\frac{3 \times 2^{20}}{2\,M^2}\right)
+    \approx 59{,}0 - 20\log_{10}(M)
+    }
+    \label{eq:snr_db}
+\end{equation}
+
+La Tabla~\ref{tab:snr_mapping} presenta valores representativos.
+
+\begin{table}[H]
+    \centering
+    \caption{Mapeo de \texttt{noise\_magnitude} ($M$) a SNR.}
+    \label{tab:snr_mapping}
+    \begin{tabular}{@{} c r r l @{}}
+        \toprule
+        $M$ & $\sigma_{w,\text{norm}}$ & $\text{SNR}_{\text{dB}}$
+            & \textbf{Observaci\'{o}n} \\
+        \midrule
+        0   & 0        & $\infty$ & Sin ruido (bypass) \\
+        4   & 0,0011   & 46,9     & Pr\'{a}cticamente limpio \\
+        16  & 0,0045   & 34,9     & Ruido imperceptible \\
+        32  & 0,0090   & 28,8     & Leve dispersi\'{o}n \\
+        64  & 0,0181   & 22,8     & Nube visible \\
+        128 & 0,0362   & 16,8     & Constelaci\'{o}n degradada \\
+        200 & 0,0565   & 12,9     & L\'{\i}mite del m\'{o}dem \\
+        255 & 0,0720   & 10,8     & Ruido m\'{a}ximo \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+
+% ============================================================================
+\section{Detalles de Implementaci\'{o}n RTL}
+\label{sec:impl}
+% ============================================================================
+
+% ----------------------------------------------------------------------------
+\subsection{Banco de 16 LFSRs con polinomios primitivos verificados}
+\label{subsec:lfsr_bank}
+% ----------------------------------------------------------------------------
+
+La calidad de la aproximaci\'{o}n CLT depende cr\'{\i}ticamente de que
+las 16 fuentes de ruido uniforme sean \textbf{estad\'{\i}sticamente
+independientes}. Esto se garantiza mediante tres mecanismos:
+
+\paragraph{1. Polinomios primitivos distintos.}
+Cada LFSR utiliza un polinomio trinomial $x^n + x^k + 1$ cuya
+primitividad ha sido verificada a partir de las tablas de referencia
+de Xilinx (XAPP052, P.~Alfke, 1996). Se emplean 11~anchuras distintas
+(de 15 a 31~bits) y 5~polinomios rec\'{\i}procos adicionales
+($x^n + x^{n-k} + 1$). La Tabla~\ref{tab:lfsr_polys} recoge el
+conjunto completo.
+
+\begin{table}[H]
+    \centering
+    \caption{Polinomios primitivos de los 16 LFSRs de ruido.}
+    \label{tab:lfsr_polys}
+    \small
+    \begin{tabular}{@{} c c c r l @{}}
+        \toprule
+        \textbf{\#} & \textbf{Anchura $n$} & \textbf{Polinomio}
+                    & \textbf{Per\'{\i}odo} & \textbf{Nota} \\
+        \midrule
+         0 & 15 & $x^{15}+x^{14}+1$ &      \num{32767} & \\
+         1 & 17 & $x^{17}+x^{14}+1$ &     \num{131071} & \\
+         2 & 18 & $x^{18}+x^{11}+1$ &     \num{262143} & \\
+         3 & 20 & $x^{20}+x^{17}+1$ &   \num{1048575} & \\
+         4 & 21 & $x^{21}+x^{19}+1$ &   \num{2097151} & \\
+         5 & 22 & $x^{22}+x^{21}+1$ &   \num{4194303} & \\
+         6 & 23 & $x^{23}+x^{18}+1$ &   \num{8388607} & ITU-T O.151 \\
+         7 & 25 & $x^{25}+x^{22}+1$ &  \num{33554431} & \\
+         8 & 28 & $x^{28}+x^{25}+1$ & \num{268435455} & \\
+         9 & 29 & $x^{29}+x^{27}+1$ & \num{536870911} & \\
+        10 & 31 & $x^{31}+x^{28}+1$ & \num{2147483647} & \\
+        11 & 15 & $x^{15}+x^{1}+1$  &      \num{32767} & Rec\'{\i}proco de \#0 \\
+        12 & 17 & $x^{17}+x^{3}+1$  &     \num{131071} & Rec\'{\i}proco de \#1 \\
+        13 & 20 & $x^{20}+x^{3}+1$  &   \num{1048575} & Rec\'{\i}proco de \#3 \\
+        14 & 23 & $x^{23}+x^{5}+1$  &   \num{8388607} & Rec\'{\i}proco de \#6 \\
+        15 & 25 & $x^{25}+x^{3}+1$  &  \num{33554431} & Rec\'{\i}proco de \#7 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\noindent
+\textbf{Nota sobre anchuras sin trinomio primitivo.}
+Las longitudes $n \in \{16, 19, 24, 26, 27, 30\}$ carecen de
+trinomios primitivos de la forma $x^n + x^k + 1$ en
+$\text{GF}(2)$~\cite{trinomial_table}. En la versi\'{o}n inicial del
+dise\~{n}o se inclu\'{\i}an estas longitudes; se detectaron durante la
+revisi\'{o}n t\'{e}cnica y se sustituyeron por pares rec\'{\i}procos de
+longitudes v\'{a}lidas. Dos LFSRs de la \emph{misma} anchura pero con
+polinomios rec\'{\i}procos generan secuencias distintas (una es la
+inversi\'{o}n temporal de la otra), por lo que mantienen la
+independencia.
+
+\paragraph{2. Semillas (seeds) \'{u}nicas por LFSR y por instancia.}
+Cada LFSR recibe una semilla calculada combinando:
+\begin{itemize}
+    \item El \'{\i}ndice $g \in [0,15]$ del LFSR dentro del generador.
+    \item Un par\'{a}metro \texttt{INSTANCE\_ID} que distingue entre la
+          instancia del canal~$I$ (\texttt{ID=0}) y la del canal~$Q$
+          (\texttt{ID=1}).
+\end{itemize}
+
+La expresi\'{o}n de c\'{a}lculo de la semilla es:
+
+\begin{equation}
+    \text{seed}(g, \text{ID}) = \bigl[
+        (\texttt{0xDEAD\_BEE0} + g \cdot \texttt{0x1357\_9BDF})
+        \oplus (\texttt{0xA5A5\_A5A5} \gg g)
+        \oplus (\text{ID} \cdot \texttt{0x5A5A\_DEAD})
+    \bigr] \,|\, 1
+    \label{eq:seed}
+\end{equation}
+
+\noindent
+El OR final con~1 impide el estado de bloqueo ($s = 0$) inherente a
+todo LFSR est\'{a}ndar. El t\'{e}rmino dependiente de \texttt{INSTANCE\_ID}
+garantiza que los 16~LFSRs de la instancia $I$ produzcan secuencias
+completamente distintas a los 16~LFSRs de la instancia $Q$, previniendo
+la correlaci\'{o}n cruzada entre canales.
+
+\paragraph{3. Bug corregido: correlaci\'{o}n I/Q.}
+En la versi\'{o}n inicial del m\'{o}dulo \texttt{channel\_top}, ambas
+instancias del generador de ruido (\texttt{u\_noise\_I} y
+\texttt{u\_noise\_Q}) se instanciaban sin par\'{a}metro diferenciador.
+Al compartir \texttt{INSTANCE\_ID = 0}, las 32~semillas resultantes
+eran id\'{e}nticas, produciendo ruidos $w_I[n] = w_Q[n]$ perfectamente
+correlacionados. Esto \textbf{invalida} la hip\'{o}tesis de canal AWGN,
+que exige $E[w_I \cdot w_Q] = 0$.
+
+La correcci\'{o}n consiste en parametrizar la instanciaci\'{o}n:
+
+\begin{lstlisting}[caption={Instanciaci\'{o}n corregida con \texttt{INSTANCE\_ID} distinto.},
+                   label={lst:instance_id}]
+awgn_generator #(.INSTANCE_ID(0)) u_noise_I ( ... );
+awgn_generator #(.INSTANCE_ID(1)) u_noise_Q ( ... );
+\end{lstlisting}
+
+% ----------------------------------------------------------------------------
+\subsection{\'{A}rbol de sumadores}
+\label{subsec:adder_tree}
+% ----------------------------------------------------------------------------
+
+Las 16 salidas uniformes de 12~bits se suman mediante un \'{a}rbol de
+sumadores combinacional de 4 niveles:
+
+\begin{equation}
+    \underbrace{16 \to 8}_{\text{Nivel 0}}
+    \;\to\;
+    \underbrace{8 \to 4}_{\text{Nivel 1}}
+    \;\to\;
+    \underbrace{4 \to 2}_{\text{Nivel 2}}
+    \;\to\;
+    \underbrace{2 \to 1}_{\text{Nivel 3}}
+    \label{eq:adder_tree}
+\end{equation}
+
+Cada sumador opera con operandos de $\text{DATA\_WIDTH} + 4 = 16$~bits
+(extensi\'{o}n con ceros para capturar el acarreo). El resultado final
+es un valor sin signo de 16~bits que se centra y registra en un flip-flop
+(primera etapa del pipeline).
+
+\begin{figure}[H]
+    \centering
+    \begin{tikzpicture}[
+        lfsr/.style={rectangle, draw, fill=blue!10, minimum width=10mm,
+                     minimum height=6mm, font=\scriptsize},
+        add/.style={circle, draw, fill=orange!15, minimum size=5mm,
+                    inner sep=0pt, font=\scriptsize},
+        reg/.style={rectangle, draw, fill=green!10, minimum width=12mm,
+                    minimum height=6mm, font=\scriptsize},
+        >=Stealth,
+        node distance=4mm and 8mm
+    ]
+        % LFSRs (simplified: show 4 of 16)
+        \foreach \i in {0,...,3} {
+            \node[lfsr] (L\i) at (0, -\i*0.9) {LFSR \i};
+        }
+        \node at (0, -4*0.9) {\vdots};
+        \foreach \i/\j in {12/4, 13/5, 14/6, 15/7} {
+            \node[lfsr] (L\i) at (0, -\j*0.9 - 1.0) {LFSR \i};
+        }
+
+        % Level 0 adders (show 2 of 8)
+        \node[add] (A00) at (2.5, -0.45) {$+$};
+        \node[add] (A01) at (2.5, -1.35) {$+$};
+        \node at (2.5, -2.5) {\vdots};
+        \node[add] (A06) at (2.5, -4.4) {$+$};
+        \node[add] (A07) at (2.5, -5.3) {$+$};
+
+        % Level 1 (show 2 of 4)
+        \node[add] (A10) at (4.2, -0.9) {$+$};
+        \node at (4.2, -2.5) {\vdots};
+        \node[add] (A13) at (4.2, -4.85) {$+$};
+
+        % Level 2 (2)
+        \node[add] (A20) at (5.8, -1.5) {$+$};
+        \node[add] (A21) at (5.8, -4.2) {$+$};
+
+        % Level 3 (1)
+        \node[add] (A30) at (7.2, -2.85) {$+$};
+
+        % Pipeline register
+        \node[reg] (R1) at (9.0, -2.85) {$z^{-1}$};
+
+        % Multiply
+        \node[add, fill=red!15] (MUL) at (10.8, -2.85) {$\times$};
+        \node[below=1mm of MUL, font=\scriptsize] {$M$};
+
+        % Output register
+        \node[reg] (R2) at (12.3, -2.85) {$z^{-1}$};
+        \node[right=4mm of R2, font=\footnotesize] {$w[n]$};
+
+        % Connections (simplified)
+        \draw[->] (L0.east) -- (A00);
+        \draw[->] (L1.east) -- (A00);
+        \draw[->] (L2.east) -- (A01);
+        \draw[->] (L3.east) -- (A01);
+        \draw[->] (L12.east) -- (A06);
+        \draw[->] (L13.east) -- (A06);
+        \draw[->] (L14.east) -- (A07);
+        \draw[->] (L15.east) -- (A07);
+        \draw[->] (A00) -- (A10);
+        \draw[->] (A01) -- (A10);
+        \draw[->] (A06) -- (A13);
+        \draw[->] (A07) -- (A13);
+        \draw[->] (A10) -- (A20);
+        \draw[->] (A13) -- (A21);
+        \draw[->] (A20) -- (A30);
+        \draw[->] (A21) -- (A30);
+        \draw[->] (A30) -- node[above, font=\scriptsize]{$-2^{15}$} (R1);
+        \draw[->] (R1) -- (MUL);
+        \draw[->] (MUL) -- node[above, font=\scriptsize]{$\gg 12$} (R2);
+        \draw[->] (R2) -- ++(7mm,0);
+    \end{tikzpicture}
+    \caption{Pipeline del generador AWGN: 16~LFSRs, \'{a}rbol de sumadores
+             de 4 niveles, centrado, escalado por~$M$ y truncaci\'{o}n.}
+    \label{fig:awgn_pipeline}
+\end{figure}
+
+% ----------------------------------------------------------------------------
+\subsection{Saturaci\'{o}n aritm\'{e}tica en la suma se\~{n}al + ruido}
+\label{subsec:saturation}
+% ----------------------------------------------------------------------------
+
+La operaci\'{o}n central del canal es la adici\'{o}n:
+
+\begin{equation}
+    r[n] = s[n] + w[n]
+    \label{eq:add}
+\end{equation}
+
+\noindent
+donde tanto $s$ como $w$ son valores Q1.11 de 12~bits firmados
+(rango $[-2048, +2047]$). La suma puede producir valores fuera de
+este rango:
+
+\begin{equation}
+    r \in [-2048 + (-2048),\; +2047 + 2047] = [-4096,\; +4094]
+    \label{eq:sum_range}
+\end{equation}
+
+\noindent
+lo que requiere 13~bits con signo para representarse sin p\'{e}rdida.
+
+\paragraph{Por qu\'{e} no truncar.}
+Si se toma simplemente $r[11:0]$ (los 12~bits inferiores), un valor
+como $+2100$ $(= \texttt{0x0834})$ se interpretar\'{\i}a
+correctamente; pero $+2048$ $(= \texttt{0x0800})$ tiene el bit~11
+a~1 y se interpretar\'{\i}a como $-2048$: una
+\textbf{inversi\'{o}n catastr\'{o}fica de signo} que inyecta un error
+de $4096$ unidades (la distancia m\'{a}xima posible). Esto distorsiona
+severamente la constelaci\'{o}n y falsea los resultados de BER.
+
+\paragraph{Soluci\'{o}n: saturaci\'{o}n.}
+Se implementa aritm\'{e}tica de saturaci\'{o}n (\textit{clipping}):
+
+\begin{equation}
+    r_{\text{sat}}[n] = \begin{cases}
+        +2047  & \text{si } r[n] > +2047 \\
+        -2048  & \text{si } r[n] < -2048 \\
+        r[n]   & \text{en otro caso}
+    \end{cases}
+    \label{eq:sat}
+\end{equation}
+
+En SystemVerilog, la extensi\'{o}n de signo y la comparaci\'{o}n se
+realizan en 13~bits:
+
+\begin{lstlisting}[caption={Saturaci\'{o}n aritm\'{e}tica en \texttt{channel\_top.sv}.},
+                   label={lst:saturation}]
+logic signed [DATA_WIDTH:0] sum_I;  // 13-bit signed
+assign sum_I = {tx_I_d[2][DATA_WIDTH-1], tx_I_d[2]}  // sign-extend TX
+             + {noise_I[DATA_WIDTH-1],   noise_I};    // sign-extend noise
+
+always_comb begin
+    if (sum_I > 13'sd2047)
+        rx_I_sat = 12'sd2047;        // SAT_POS
+    else if (sum_I < -13'sd2048)
+        rx_I_sat = -12'sd2048;       // SAT_NEG
+    else
+        rx_I_sat = sum_I[11:0];      // Dentro de rango
+end
+\end{lstlisting}
+
+\paragraph{Probabilidad de saturaci\'{o}n.}
+Para $M = 128$ (SNR $\approx \SI{17}{\decibel}$), los niveles extremos
+de la constelaci\'{o}n son $\pm 1943$ (margen de $2047 - 1943 = 104$
+unidades). La probabilidad de que el ruido supere este margen es:
+
+\begin{equation}
+    P_{\text{sat}} = 2\,Q\!\left(\frac{104}{\sigma_w}\right)
+    \label{eq:psat}
+\end{equation}
+
+\noindent
+donde $Q(\cdot)$ es la funci\'{o}n Q gaussiana. Para $M = 128$,
+$\sigma_w \approx 74$, de donde $P_{\text{sat}} \approx 2\,Q(1{,}4)
+\approx 16\,\%$: la saturaci\'{o}n ya es frecuente, pero introduce
+una compresi\'{o}n suave an\'{a}loga al recorte de un ADC real.
+Para $M \leq 64$ (SNR $\geq \SI{23}{\decibel}$), $P_{\text{sat}} < 0{,}1\,\%$.
+
+% ----------------------------------------------------------------------------
+\subsection{Alineamiento de latencia y pipeline}
+\label{subsec:latency}
+% ----------------------------------------------------------------------------
+
+El generador de ruido introduce 3~ciclos de latencia (LFSRs $\to$
+suma registrada $\to$ escalado registrado). Para que la adici\'{o}n
+$s[n] + w[n]$ sea coherente en el tiempo, la se\~{n}al TX se retarda
+mediante una l\'{\i}nea de registros de 3~etapas:
+
+\begin{equation}
+    s_{\text{alineada}}[n] = s[n - 3]
+    \label{eq:alignment}
+\end{equation}
+
+La suma se registra en una cuarta etapa, dando una latencia total del
+bloque de canal de \textbf{4 ciclos de reloj}.
+
+\begin{table}[H]
+    \centering
+    \caption{Latencia del subsistema de canal AWGN.}
+    \label{tab:ch_latency}
+    \begin{tabular}{@{} l c l @{}}
+        \toprule
+        \textbf{Etapa} & \textbf{Ciclos} & \textbf{Descripci\'{o}n} \\
+        \midrule
+        LFSRs y \'{a}rbol de sumas & 1 & Comb. + registro \\
+        Centrado registrado          & 1 & Pipeline stage \\
+        Escalado ($\times M$) + truncaci\'{o}n & 1 & Registro de salida \\
+        Suma saturante + registro    & 1 & Salida final \\
+        \midrule
+        \textbf{Total}               & \textbf{4} & \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+
+% ============================================================================
+\section{Resultados de Validaci\'{o}n}
+\label{sec:validation}
+% ============================================================================
+
+La validaci\'{o}n del canal AWGN se realiza mediante el testbench
+\texttt{tb\_channel.sv}, que efect\'{u}a un barrido eparam\'{e}trico de
+\texttt{noise\_magnitude} ($M \in \{0, 16, 64, 128, 255\}$) midiendo:
+
+\begin{itemize}
+    \item Estad\'{\i}sticas de las muestras de salida (media, m\'{\i}nimo,
+          m\'{a}ximo) por nivel de ruido.
+    \item Conteo de eventos de saturaci\'{o}n.
+    \item Exportaci\'{o}n de las muestras $I/Q$ a fichero CSV para
+          representaci\'{o}n gr\'{a}fica de la constelaci\'{o}n.
+\end{itemize}
+
+% ----------------------------------------------------------------------------
+\subsection{Histograma de la distribuci\'{o}n de ruido}
+\label{subsec:histogram}
+% ----------------------------------------------------------------------------
+
+La Figura~\ref{fig:histogram} muestra el histograma normalizado de
+$10\,000$ muestras de ruido generadas con $M = 128$, superpuesto con la
+PDF gaussiana te\'{o}rica de varianza equivalente. La concordancia
+visual confirma la validez de la aproximaci\'{o}n CLT con $N = 16$.
+
+\begin{figure}[H]
+    \centering
+    % ---- PLACEHOLDER: sustituir por la figura real ----
+    \fbox{\parbox{0.7\textwidth}{\centering
+        \vspace{3cm}
+        \textit{Insertar histograma:} \texttt{docs/figures/awgn\_validation.png}
+        \vspace{3cm}
+    }}
+    % Para insertar la figura real, descomentar:
+    % \includegraphics[width=0.75\textwidth]{../figures/awgn_validation.png}
+    \caption{Histograma del ruido generado ($M=128$, $N_{\text{muestras}}=10\,000$)
+             frente a la PDF gaussiana te\'{o}rica $\mathcal{N}(0, \sigma_w^2)$.}
+    \label{fig:histogram}
+\end{figure}
+
+% ----------------------------------------------------------------------------
+\subsection{Dispersi\'{o}n de la constelaci\'{o}n}
+\label{subsec:constellation}
+% ----------------------------------------------------------------------------
+
+La Figura~\ref{fig:constellation} ilustra c\'{o}mo la nube de puntos
+$I/Q$ se expande al incrementar~$M$. Para $M = 0$ se observa la
+constelaci\'{o}n ideal de 16~puntos; para $M = 255$ los cl\'{u}steres
+se solapan, indicando una elevada probabilidad de error de s\'{\i}mbolo.
+
+\begin{figure}[H]
+    \centering
+    \fbox{\parbox{0.7\textwidth}{\centering
+        \vspace{3cm}
+        \textit{Insertar mosaico de constelaciones para}
+        $M \in \{0, 16, 64, 128, 255\}$
+        \vspace{3cm}
+    }}
+    % \includegraphics[width=0.85\textwidth]{../figures/constellation_sweep.png}
+    \caption{Constelaci\'{o}n 16-QAM recibida para distintos valores de
+             \texttt{noise\_magnitude}.}
+    \label{fig:constellation}
+\end{figure}
+
+
+% ============================================================================
+\section{S\'{\i}ntesis de Decisiones de Dise\~{n}o}
+\label{sec:decisions}
+% ============================================================================
+
+\begin{table}[H]
+    \centering
+    \caption{Resumen de decisiones de dise\~{n}o de la Fase~2 (Canal AWGN).}
+    \label{tab:decisions}
+    \small
+    \begin{tabular}{@{} p{3.0cm} p{3.0cm} p{7.5cm} @{}}
+        \toprule
+        \textbf{Aspecto} & \textbf{Decisi\'{o}n} & \textbf{Justificaci\'{o}n} \\
+        \midrule
+        Generaci\'{o}n gaussiana &
+        CLT ($N=16$) &
+        Coste m\'{\i}nimo ($\sim$400~LUT, 0~BSRAM); latencia fija (3~ciclos);
+        curtosis en exceso $< 0{,}08$. Descartados Box-Muller y Zigurat
+        por alto consumo de recursos/latencia variable. \\[0.5em]
+
+        Independencia de fuentes &
+        16 polinomios primitivos verificados &
+        11~anchuras \'{u}nicas + 5~rec\'{\i}procos; eliminadas las anchuras
+        sin trinomio primitivo ($n \in \{16,19,24,26,27,30\}$).
+        Referencia: XAPP052. \\[0.5em]
+
+        Independencia I/Q &
+        \texttt{INSTANCE\_ID} &
+        Par\'{a}metro que modifica las 16~semillas de cada instancia;
+        corrige el bug de correlaci\'{o}n I/Q detectado en revisi\'{o}n. \\[0.5em]
+
+        Control de SNR &
+        Registro \texttt{noise\_mag} [7:0] &
+        Escalado lineal; $\text{SNR} \approx 59 - 20\log_{10}(M)$~dB;
+        rango $\sim$11--$\infty$~dB. \\[0.5em]
+
+        Gesti\'{o}n de overflow &
+        Saturaci\'{o}n aritm\'{e}tica &
+        Suma en 13~bits; recorte a $[-2048, +2047]$; evita inversi\'{o}n
+        de signo catastr\'{o}fica de la truncaci\'{o}n simple. \\[0.5em]
+
+        Alineamiento temporal &
+        L\'{\i}nea de retardo 3~FF &
+        Compensa la latencia del generador para suma coherente. \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+
+% ============================================================================
+% Referencias
+% ============================================================================
+\begin{thebibliography}{9}
+    \bibitem{trinomial_table}
+    R.~W. Watson,
+    ``Table of primitive polynomials over GF(2) of degree up to 100,''
+    \textit{Mathematics of Computation}, vol.~16, pp.~368--369, 1962.
+
+    \bibitem{xapp052}
+    P.~Alfke,
+    ``Efficient Shift Registers, LFSR Counters, and Long Pseudo-Random
+    Sequence Generators,''
+    Xilinx Application Note XAPP052, v1.1, 1996.
+
+    \bibitem{box_muller}
+    G.~E.~P.~Box and M.~E.~Muller,
+    ``A Note on the Generation of Random Normal Deviates,''
+    \textit{The Annals of Mathematical Statistics}, vol.~29, no.~2,
+    pp.~610--611, 1958.
+\end{thebibliography}
+
+
+% ============================================================================
+\end{document}

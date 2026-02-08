@@ -70,7 +70,7 @@ module channel_top
     sample_t noise_I, noise_Q;
     logic    noise_I_valid, noise_Q_valid;
 
-    awgn_generator u_noise_I (
+    awgn_generator #(.INSTANCE_ID(0)) u_noise_I (
         .clk             (clk),
         .rst_n           (rst_n),
         .en              (tx_valid),
@@ -79,7 +79,7 @@ module channel_top
         .noise_valid     (noise_I_valid)
     );
 
-    awgn_generator u_noise_Q (
+    awgn_generator #(.INSTANCE_ID(1)) u_noise_Q (
         .clk             (clk),
         .rst_n           (rst_n),
         .en              (tx_valid),

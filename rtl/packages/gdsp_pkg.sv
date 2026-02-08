@@ -87,20 +87,42 @@ package gdsp_pkg;
     parameter int NOISE_SUM_WIDTH = DATA_WIDTH + 4; // 16 bits (12 + log2(16))
     parameter int NOISE_PROD_W    = NOISE_SUM_WIDTH + NOISE_MAG_WIDTH; // 24
 
-    // LFSR polynomials (all primitive, distinct lengths to avoid correlation)
-    //   Format: {width, tap_a, tap_b}
-    //   Each LFSR uses: feedback = state[tap_a-1] ^ state[tap_b-1]
+    // LFSR polynomials — ALL verified primitive trinomials (x^n + x^k + 1).
+    //   Sources: Xilinx XAPP052, P. Alfke (1996); New (2005) table.
+    //   LFSRs 0–10: each a unique width (15..31, excluding non-trinomial n).
+    //   LFSRs 11–15: reciprocal polynomials (x^n + x^{n-k} + 1) of earlier
+    //     entries, providing distinct sequences of the SAME period.
+    //   feedback = state[tap_a-1] ^ state[tap_b-1]
+    //
+    //   Idx  Poly                   Period
+    //   ---  -----                  ------
+    //    0   x^15 + x^14 + 1        32767
+    //    1   x^17 + x^14 + 1       131071
+    //    2   x^18 + x^11 + 1       262143
+    //    3   x^20 + x^17 + 1      1048575
+    //    4   x^21 + x^19 + 1      2097151
+    //    5   x^22 + x^21 + 1      4194303
+    //    6   x^23 + x^18 + 1      8388607  (ITU-T O.151)
+    //    7   x^25 + x^22 + 1     33554431
+    //    8   x^28 + x^25 + 1    268435455
+    //    9   x^29 + x^27 + 1    536870911
+    //   10   x^31 + x^28 + 1   2147483647
+    //   11   x^15 + x^1  + 1       32767  (reciprocal of #0)
+    //   12   x^17 + x^3  + 1      131071  (reciprocal of #1)
+    //   13   x^20 + x^3  + 1     1048575  (reciprocal of #3)
+    //   14   x^23 + x^5  + 1      8388607 (reciprocal of #6)
+    //   15   x^25 + x^3  + 1     33554431 (reciprocal of #7)
     parameter int NOISE_LFSR_WIDTHS [0:15] = '{
-        17, 19, 20, 21, 22, 23, 25, 28,
-        29, 31, 15, 18, 24, 26, 27, 30
+        15, 17, 18, 20, 21, 22, 23, 25,
+        28, 29, 31, 15, 17, 20, 23, 25
     };
     parameter int NOISE_LFSR_TAPS_A [0:15] = '{
-        17, 19, 20, 21, 22, 23, 25, 28,
-        29, 31, 15, 18, 24, 26, 27, 30
+        15, 17, 18, 20, 21, 22, 23, 25,
+        28, 29, 31, 15, 17, 20, 23, 25
     };
     parameter int NOISE_LFSR_TAPS_B [0:15] = '{
-        14,  6,  3,  2,  1, 18, 22, 25,
-        27, 28, 14, 11,  7,  6,  5,  6
+        14, 14, 11, 17, 19, 21, 18, 22,
+        25, 27, 28,  1,  3,  3,  5,  3
     };
 
     // ========================================================================

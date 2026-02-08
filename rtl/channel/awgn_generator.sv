@@ -68,6 +68,11 @@
 
 module awgn_generator
     import gdsp_pkg::*;
+#(
+    parameter int INSTANCE_ID = 0  // Unique per instance (0=I, 1=Q)
+                                   // XOR'd into seeds to guarantee
+                                   // statistical independence.
+)
 (
     input  logic                          clk,
     input  logic                          rst_n,
@@ -103,10 +108,22 @@ module awgn_generator
 
     generate
         for (genvar g = 0; g < NUM_LFSR_NOISE; g++) begin : gen_lfsr
-            // Unique non-zero seed per LFSR (bit-reverse of index + offset)
-            localparam [31:0] SEED_VAL = ((32'hDEAD_BEE0 + g * 32'h1357_9BDF)
-                                          ^ (32'hA5A5_A5A5 >> g))
-                                         | 32'h1;  // Ensure non-zero
+            // Unique non-zero seed per LFSR.
+            // The INSTANCE_ID ensures that two awgn_generator instantiations
+            // (I-channel vs Q-channel) receive completely different seed sets,
+            // preventing correlated noise between I and Q branches.
+            //
+            // Construction:
+            //   base  = 0xDEAD_BEE0 + g * 0x1357_9BDF   (spread by index)
+            //   mix   = base ^ (0xA5A5_A5A5 >> g)        (bit decorrelation)
+            //   inst  = mix ^ (INSTANCE_ID * 0x5A5A_DEAD) (I/Q separation)
+            //   seed  = inst | 1                          (guarantee non-zero)
+            //   final = seed & ((1 << width) - 1)         (mask to LFSR width)
+            localparam [31:0] SEED_BASE = (32'hDEAD_BEE0 + g[4:0] * 32'h1357_9BDF)
+                                          ^ (32'hA5A5_A5A5 >> g[4:0]);
+            localparam [31:0] SEED_INST = SEED_BASE
+                                          ^ (INSTANCE_ID[3:0] * 32'h5A5A_DEAD);
+            localparam [31:0] SEED_VAL  = SEED_INST | 32'h1;
 
             always_ff @(posedge clk or negedge rst_n) begin
                 if (!rst_n) begin
