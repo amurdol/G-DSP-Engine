@@ -70,7 +70,8 @@ No soft-core CPU is used in the data path — all DSP runs purely in RTL.
 | Resolution  | $2^{-11} \approx 4.88 \times 10^{-4}$ |
 | SQNR        | ~68 dB                             |
 
-See [`docs/fixed_point_analysis.md`](docs/fixed_point_analysis.md) for full derivation.
+See [Fase 0 Documentation](docs/tex/fase0_analysis.tex) for rigorous derivation
+and [fixed\_point\_analysis.md](docs/fixed_point_analysis.md) for design notes.
 
 ---
 
@@ -104,7 +105,7 @@ G-DSP-Engine/
 │   └── timing.sdc              #   Clock & timing constraints
 │
 ├── docs/                       # Technical documentation
-│   ├── tex/                    #   LaTeX source (fase1–4)
+│   ├── tex/                    #   LaTeX source (fase0–4)
 │   ├── figures/                #   Auto-generated plots
 │   └── fixed_point_analysis.md #   Arithmetic design notes
 │
@@ -211,14 +212,20 @@ powershell -ExecutionPolicy Bypass -File scripts/run_tests.ps1
 
 ---
 
-## Documentation
+## Project Documentation
 
-Technical write-ups for each phase are in [`docs/tex/`](docs/tex/):
+Complete technical documentation in LaTeX (compile with `pdflatex`):
 
-- `fase1_tx_subsystem.tex` — QAM mapping, RRC filter design
-- `fase2_channel.tex` — AWGN model, CLT implementation
-- `fase3_rx.tex` — Timing/carrier recovery, Costas loop analysis
-- `fase4_integration.tex` — Top-level, clocking, HDMI renderer
+| Phase | Document | Description |
+|:-----:|----------|-------------|
+| 📘 **0** | [fase0\_analysis.tex](docs/tex/fase0_analysis.tex) | System parameters, Q1.11 fixed-point analysis |
+| 📗 **1** | [fase1\_tx\_subsystem.tex](docs/tex/fase1_tx_subsystem.tex) | QAM mapper, RRC pulse-shaping filter |
+| 📙 **2** | [fase2\_channel.tex](docs/tex/fase2_channel.tex) | AWGN channel model, CLT implementation |
+| 📕 **3** | [fase3\_rx.tex](docs/tex/fase3_rx.tex) | Timing/carrier recovery, Costas loop |
+| 📓 **4** | [fase4\_integration.tex](docs/tex/fase4_integration.tex) | Top-level integration, HDMI renderer |
+
+Additional notes:
+- [`docs/fixed_point_analysis.md`](docs/fixed_point_analysis.md) — Original Q-format design notes
 
 ---
 

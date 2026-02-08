@@ -1,0 +1,471 @@
+% ============================================================================
+% G-DSP Engine — Fase 0: Análisis de Sistema y Aritmética de Punto Fijo
+% ============================================================================
+% Autor  : G-DSP Team
+% Target : Gowin GW1NR-LV9QN88PC6/I5 (Tang Nano 9K)
+% ============================================================================
+
+\documentclass[11pt, a4paper]{article}
+
+% ============================================================================
+% Paquetes
+% ============================================================================
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish]{babel}
+\usepackage{amsmath, amssymb, amsfonts}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{hyperref}
+\usepackage{geometry}
+\usepackage{fancyhdr}
+\usepackage{siunitx}
+\usepackage{float}
+
+\geometry{margin=2.5cm}
+
+% ============================================================================
+% Configuración de listados de código
+% ============================================================================
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.97,0.97,0.97}
+
+\lstdefinestyle{verilog}{
+    backgroundcolor=\color{backcolour},
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{blue},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breaklines=true,
+    numbers=left,
+    numbersep=5pt,
+    frame=single,
+    captionpos=b
+}
+
+% ============================================================================
+% Encabezado y pie de página
+% ============================================================================
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{G-DSP Engine}
+\rhead{Fase 0: Análisis de Sistema}
+\cfoot{\thepage}
+
+% ============================================================================
+% Información del documento
+% ============================================================================
+\title{%
+    \textbf{G-DSP Engine} \\[0.5em]
+    \Large Fase 0: Definición del Sistema y Análisis de Punto Fijo \\[0.5em]
+    \large Trabajo de Fin de Grado — Módem 16-QAM en FPGA
+}
+\author{G-DSP Team}
+\date{\today}
+
+% ============================================================================
+% Documento
+% ============================================================================
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+% ============================================================================
+\section{Introducción}
+% ============================================================================
+
+Este documento establece los fundamentos del proyecto G-DSP Engine, un procesador
+de banda base 16-QAM implementado íntegramente en lógica digital sobre la FPGA
+Gowin GW1NR-LV9. Se definen los parámetros del sistema, el formato aritmético de
+punto fijo y las restricciones de recursos que guían todas las decisiones de diseño
+en fases posteriores.
+
+La \textbf{Fase 0} comprende:
+\begin{itemize}
+    \item Selección de la plataforma hardware y sus limitaciones
+    \item Definición de parámetros del sistema (frecuencias, tasas de símbolo)
+    \item Análisis y selección del formato de punto fijo
+    \item Presupuesto de recursos DSP
+    \item Establecimiento del modelo de referencia en Python (Golden Model)
+\end{itemize}
+
+% ============================================================================
+\section{Plataforma Hardware}
+% ============================================================================
+
+\subsection{Sipeed Tang Nano 9K}
+
+El proyecto se desarrolla sobre la tarjeta de desarrollo \textbf{Sipeed Tang Nano 9K},
+que incorpora la FPGA Gowin GW1NR-LV9QN88PC6/I5. Esta plataforma fue seleccionada
+por su equilibrio entre prestaciones, costo y disponibilidad de interfaces
+multimedia (HDMI nativo).
+
+\begin{table}[H]
+\centering
+\caption{Recursos de la FPGA GW1NR-LV9}
+\label{tab:fpga_resources}
+\begin{tabular}{@{}lrl@{}}
+\toprule
+\textbf{Recurso}      & \textbf{Cantidad} & \textbf{Notas} \\
+\midrule
+LUTs (4-input)        & 8,640             & Lógica combinacional \\
+Flip-Flops            & 6,480             & Registros \\
+DSP Slices (MULT9)    & 20                & Multiplicadores 9$\times$9 \\
+BSRAM (18 Kbit)       & 26                & Block RAM \\
+PSRAM                 & 64 Mbit           & HyperRAM externa (no utilizada) \\
+PLL                   & 2                 & Síntesis de reloj \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Arquitectura DSP}
+
+Los bloques DSP del GW1NR-LV9 son de tipo \textbf{MULT9/pREG}, que proporcionan:
+\begin{itemize}
+    \item Un multiplicador \textbf{9$\times$9 firmado} nativo
+    \item Cascada para formar \textbf{18$\times$18} (2 slices) o \textbf{36$\times$36} (4 slices)
+    \item Registro de pipeline integrado (pREG)
+\end{itemize}
+
+Para datos de 12 bits, utilizamos la configuración 18$\times$18, consumiendo
+2 slices MULT9 por multiplicador completo.
+
+% ============================================================================
+\section{Parámetros del Sistema}
+% ============================================================================
+
+Los parámetros fundamentales del sistema están centralizados en el paquete
+\texttt{gdsp\_pkg.sv}, garantizando consistencia entre todos los módulos RTL.
+
+\begin{table}[H]
+\centering
+\caption{Parámetros del sistema definidos en \texttt{gdsp\_pkg.sv}}
+\label{tab:system_params}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Parámetro}     & \textbf{Símbolo}     & \textbf{Valor}      & \textbf{Unidad} \\
+\midrule
+Frecuencia de reloj    & $f_{clk}$            & 27                  & MHz \\
+Reloj de píxel (HDMI)  & $f_{pix}$            & 74.25               & MHz \\
+Muestras por símbolo   & SPS                  & 4                   & --- \\
+Tasa de muestreo       & $f_s = f_{clk}$      & 27                  & Msps \\
+Tasa de símbolo        & $f_{sym} = f_s$/SPS  & 6.75                & MBaud \\
+Bits por símbolo       & ---                  & 4                   & bits \\
+Tasa de bits           & $R_b$                & 27                  & Mbps \\
+\midrule
+Factor de roll-off     & $\alpha$             & 0.25                & --- \\
+Taps del filtro RRC    & $N_{taps}$           & 33                  & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Cálculo de la Tasa de Símbolo}
+
+Con un reloj de sistema de \SI{27}{\mega\hertz} y 4 muestras por símbolo:
+\begin{equation}
+    f_{sym} = \frac{f_{clk}}{SPS} = \frac{27 \times 10^6}{4} = 6.75 \text{ MBaud}
+\end{equation}
+
+Para modulación 16-QAM ($\log_2(16) = 4$ bits/símbolo):
+\begin{equation}
+    R_b = f_{sym} \times \log_2(M) = 6.75 \times 4 = 27 \text{ Mbps}
+\end{equation}
+
+\subsection{Ancho de Banda Ocupado}
+
+El ancho de banda del filtro RRC con factor de roll-off $\alpha = 0.25$:
+\begin{equation}
+    BW = (1 + \alpha) \times f_{sym} = 1.25 \times 6.75 = 8.4375 \text{ MHz}
+\end{equation}
+
+Este ancho de banda cumple holgadamente con la frecuencia de Nyquist
+($f_s/2 = 13.5$ MHz).
+
+% ============================================================================
+\section{Formato de Punto Fijo}
+% ============================================================================
+
+\subsection{Notación Q$m$.$n$}
+
+Adoptamos la notación \textbf{Q$m$.$n$} donde:
+\begin{itemize}
+    \item $m$ = número de bits de parte entera (excluyendo signo)
+    \item $n$ = número de bits de parte fraccionaria
+    \item Bit de signo implícito en complemento a dos
+    \item Ancho total: $W = 1 + m + n$ bits
+\end{itemize}
+
+\subsection{Selección: Q1.11 (12 bits)}
+
+Tras evaluar múltiples opciones, se selecciona el formato \textbf{Q1.11}:
+
+\begin{table}[H]
+\centering
+\caption{Comparativa de formatos de punto fijo candidatos}
+\label{tab:formats}
+\begin{tabular}{@{}ccccc@{}}
+\toprule
+\textbf{Formato} & \textbf{Bits} & \textbf{Rango} & \textbf{Resolución (LSB)} & \textbf{SQNR} \\
+\midrule
+Q1.7   & 8  & $[-1, +0.992]$   & $7.81 \times 10^{-3}$ & $\sim$44 dB \\
+\rowcolor{green!15}
+Q1.11  & 12 & $[-1, +0.9995]$  & $4.88 \times 10^{-4}$ & $\sim$68 dB \\
+Q1.15  & 16 & $[-1, +0.99997]$ & $3.05 \times 10^{-5}$ & $\sim$92 dB \\
+Q2.10  & 12 & $[-2, +1.999]$   & $9.77 \times 10^{-4}$ & $\sim$62 dB \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Propiedades del Formato Q1.11}
+
+\begin{equation}
+    \text{Rango: } \quad V \in \left[-1.0, \; +1.0 - 2^{-11}\right] \approx [-1.0, \; +0.99951]
+\end{equation}
+
+\begin{equation}
+    \text{Resolución (1 LSB): } \quad \Delta = 2^{-11} \approx 4.88 \times 10^{-4}
+\end{equation}
+
+\begin{equation}
+    \text{Conversión a entero: } \quad x_{int} = \text{round}(x_{float} \times 2^{11})
+\end{equation}
+
+\begin{equation}
+    \text{Conversión a flotante: } \quad x_{float} = \frac{x_{int}}{2^{11}}
+\end{equation}
+
+% ============================================================================
+\section{Análisis de Precisión}
+% ============================================================================
+
+\subsection{Rango Dinámico}
+
+El rango dinámico de un formato de punto fijo de $N$ bits se calcula como:
+\begin{equation}
+    DR = 20 \log_{10}\left(\frac{V_{max}}{V_{min}}\right) = 20 \log_{10}\left(\frac{2^{N-1} - 1}{1}\right)
+\end{equation}
+
+Para Q1.11 ($N = 12$):
+\begin{equation}
+    DR = 20 \log_{10}(2047) \approx 66.2 \text{ dB}
+\end{equation}
+
+\subsection{Relación Señal a Ruido de Cuantización (SQNR)}
+
+Para una señal sinusoidal de amplitud completa, la SQNR teórica es:
+\begin{equation}
+    \boxed{SQNR = 6.02N + 1.76 \text{ dB}}
+\end{equation}
+
+Donde $N$ es el número de bits. Para Q1.11:
+\begin{equation}
+    SQNR = 6.02 \times 12 + 1.76 = 72.24 + 1.76 = 74.0 \text{ dB (teórico)}
+\end{equation}
+
+En la práctica, para señales QAM cuya distribución no es sinusoidal pura,
+se obtiene aproximadamente:
+\begin{equation}
+    SQNR_{QAM} \approx 68 \text{ dB}
+\end{equation}
+
+\subsection{Margen sobre el Requisito de 16-QAM}
+
+Para 16-QAM con BER = $10^{-5}$, el SNR mínimo requerido es aproximadamente
+\textbf{20 dB}. Con 68 dB de SQNR:
+\begin{equation}
+    \text{Margen} = SQNR - SNR_{req} = 68 - 20 = \boxed{48 \text{ dB}}
+\end{equation}
+
+Este margen garantiza que el ruido de cuantización será completamente
+despreciable frente al ruido térmico del canal.
+
+% ============================================================================
+\section{Justificación de 12 Bits}
+% ============================================================================
+
+La selección de 12 bits (Q1.11) responde a un equilibrio óptimo:
+
+\begin{enumerate}
+    \item \textbf{Compatibilidad DSP:} Los multiplicadores 18$\times$18 de Gowin
+          aceptan nativamente operandos de hasta 18 bits. Con 12 bits:
+          \begin{equation}
+              \text{Producto} = 12 + 12 = 24 \text{ bits}
+          \end{equation}
+          El multiplicador produce 36 bits, dejando 12 bits de margen para
+          acumulación directa dentro del DSP.
+
+    \item \textbf{Ancho del acumulador FIR:} Para 33 taps:
+          \begin{equation}
+              W_{accum} = W_{prod} + \lceil \log_2(N_{taps}) \rceil = 24 + 6 = 30 \text{ bits}
+          \end{equation}
+
+    \item \textbf{Eficiencia de recursos:} 12 bits vs 16 bits reduce el consumo
+          de registros y rutas de interconexión en $\sim$25\%, crítico en una
+          FPGA de 9K LUTs.
+
+    \item \textbf{Margen SQNR:} 48 dB sobre el requisito asegura que la
+          cuantización no degradará el rendimiento del módem.
+\end{enumerate}
+
+% ============================================================================
+\section{Niveles de Constelación 16-QAM}
+% ============================================================================
+
+La constelación 16-QAM normalizada utiliza niveles $\{\pm 1, \pm 3\}/\sqrt{10}$
+en cada eje, garantizando potencia media unitaria.
+
+\begin{table}[H]
+\centering
+\caption{Niveles 16-QAM en Q1.11}
+\label{tab:qam_levels}
+\begin{tabular}{@{}cccc@{}}
+\toprule
+\textbf{Nivel} & \textbf{Valor Flotante} & \textbf{Cálculo} & \textbf{Q1.11 (decimal)} \\
+\midrule
+$-3/\sqrt{10}$ & $-0.948683$ & $\text{round}(-0.948683 \times 2048)$ & $-1943$ \\
+$-1/\sqrt{10}$ & $-0.316228$ & $\text{round}(-0.316228 \times 2048)$ & $-648$  \\
+$+1/\sqrt{10}$ & $+0.316228$ & $\text{round}(+0.316228 \times 2048)$ & $+648$  \\
+$+3/\sqrt{10}$ & $+0.948683$ & $\text{round}(+0.948683 \times 2048)$ & $+1943$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Estos valores están parametrizados en \texttt{gdsp\_pkg.sv}:
+\begin{lstlisting}[style=verilog, caption={Niveles QAM en gdsp\_pkg.sv}]
+parameter signed [DATA_WIDTH-1:0] QAM_NEG3 = -12'sd1943;
+parameter signed [DATA_WIDTH-1:0] QAM_NEG1 = -12'sd648;
+parameter signed [DATA_WIDTH-1:0] QAM_POS1 =  12'sd648;
+parameter signed [DATA_WIDTH-1:0] QAM_POS3 =  12'sd1943;
+\end{lstlisting}
+
+% ============================================================================
+\section{Presupuesto de Errores de Cuantización}
+% ============================================================================
+
+\begin{table}[H]
+\centering
+\caption{Error de truncamiento por etapa del módem}
+\label{tab:error_budget}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Etapa}        & \textbf{Entrada} & \textbf{Salida} & \textbf{Error (LSB)} \\
+\midrule
+QAM Mapper            & LUT exacta       & 12 bits         & 0 (exacto)           \\
+RRC Tx Filter         & 12 bits          & 12 bits         & $\sim$0.5 (redondeo) \\
+Suma AWGN             & 12 + 12 bits     & 12 bits         & $\sim$0.5            \\
+RRC Rx Filter         & 12 bits          & 12 bits         & $\sim$0.5            \\
+Gardner Interp.       & 12 bits          & 12 bits         & $\sim$0.5            \\
+Costas Derotator      & 12 bits          & 12 bits         & $\sim$0.5            \\
+\midrule
+\textbf{Total acum.}  & ---              & ---             & $\sim$3 LSB peor caso \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+El error acumulado de 3 LSB en Q1.11 representa:
+\begin{equation}
+    \varepsilon_{total} = 3 \times 2^{-11} \approx 1.46 \times 10^{-3}
+\end{equation}
+
+Este valor es despreciable comparado con el piso de ruido del canal AWGN
+en cualquier escenario práctico de interés.
+
+% ============================================================================
+\section{Presupuesto de Recursos DSP}
+% ============================================================================
+
+Los 20 slices MULT9 disponibles se distribuyen según:
+
+\begin{table}[H]
+\centering
+\caption{Asignación de bloques DSP}
+\label{tab:dsp_budget}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Bloque}       & \textbf{DSP Slices} & \textbf{Notas} \\
+\midrule
+RRC Tx (semiplegado)  & 2--4                & Multiplexado temporal \\
+RRC Rx (semiplegado)  & 2--4                & Misma arquitectura \\
+Gardner interpolador  & 2                   & Interpolación lineal \\
+Costas Loop           & 4                   & Mult. complejo (3 reales) \\
+AWGN / misc           & 2--4                & Escalado de ruido \\
+\midrule
+\textbf{Reserva}      & 2--4                & Cierre temporal / debug \\
+\midrule
+\textbf{TOTAL}        & $\leq$ 20           & \checkmark Cabe \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ============================================================================
+\section{Modelo de Referencia (Golden Model)}
+% ============================================================================
+
+Se desarrolló un modelo de referencia bit-exacto en Python (\texttt{scripts/golden\_model.py})
+que implementa toda la cadena de señal con aritmética idéntica al RTL.
+
+\subsection{Funciones del Golden Model}
+
+\begin{itemize}
+    \item Generación de coeficientes RRC normalizados para Q1.11
+    \item Mapeo 16-QAM con codificación Gray
+    \item Filtrado RRC (convolución) con truncamiento idéntico al hardware
+    \item Generación de vectores de test en formato \texttt{.hex} y \texttt{.mem}
+    \item Plots de constelación, diagrama de ojo y espectro
+\end{itemize}
+
+\subsection{Normalización de Coeficientes}
+
+Los coeficientes del filtro RRC se normalizan para evitar desbordamiento:
+\begin{equation}
+    h_{norm}[n] = \frac{h[n]}{\max|h[n]|} \times (2^{FRAC\_BITS - 1} - 1)
+\end{equation}
+
+Esto garantiza que el tap de mayor magnitud sea ligeramente menor que 0.5
+en representación Q1.11, previniendo overflow durante la acumulación del FIR.
+
+% ============================================================================
+\section{Conclusiones de Fase 0}
+% ============================================================================
+
+Esta fase estableció los cimientos del proyecto:
+
+\begin{enumerate}
+    \item \textbf{Plataforma validada:} Tang Nano 9K con 20 DSP slices y 8.6K LUTs
+          es suficiente para un módem 16-QAM completo.
+
+    \item \textbf{Formato Q1.11:} Proporciona 68 dB de SQNR, 48 dB de margen
+          sobre el requisito de 16-QAM, con eficiencia de recursos óptima.
+
+    \item \textbf{Parámetros del sistema:} 27 MHz de reloj, 6.75 MBaud, 27 Mbps,
+          $\alpha = 0.25$, 33 taps RRC.
+
+    \item \textbf{Golden Model:} Referencia bit-exacta en Python para verificación
+          rigurosa del RTL en todas las fases subsiguientes.
+\end{enumerate}
+
+% ============================================================================
+\section{Referencias}
+% ============================================================================
+
+\begin{enumerate}
+    \item Gowin Semiconductor, \textit{GW1NR Series FPGA Products Datasheet},
+          DS861, 2023.
+    \item R. G. Lyons, \textit{Understanding Digital Signal Processing},
+          3rd ed., Prentice Hall, 2011, Ch. 12.
+    \item J. G. Proakis and M. Salehi, \textit{Digital Communications},
+          5th ed., McGraw-Hill, 2008, Ch. 5.
+    \item Xilinx, \textit{Efficient Shift Registers, LFSR Counters, and Long
+          Pseudo-Random Sequence Generators}, XAPP 052, 1996.
+\end{enumerate}
+
+\end{document}
