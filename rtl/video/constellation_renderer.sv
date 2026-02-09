@@ -170,11 +170,15 @@ module constellation_renderer
     // Convert I/Q to pixel coords (clamped to plot area)
     // I maps to X: center_x + (I >>> 4) where I range [−2048,+2047] → [−128,+127]
     // Q maps to Y: center_y − (Q >>> 4) (inverted for screen coords)
-    wire signed [12:0] scaled_I = {{1{sym_I[11]}}, sym_I} >>> 4;  // [−128,+127]
-    wire signed [12:0] scaled_Q = {{1{sym_Q[11]}}, sym_Q} >>> 4;
+    wire signed [12:0] scaled_I = $signed(sym_I) >>> 4;  // [−128,+127]
+    wire signed [12:0] scaled_Q = $signed(sym_Q) >>> 4;
 
-    wire [11:0] new_x = CENTER_X + scaled_I[11:0];
-    wire [10:0] new_y = CENTER_Y - scaled_Q[10:0];
+    // Correctly handle signed arithmetic for coordinate conversion
+    wire signed [12:0] x_coord = $signed({1'b0, CENTER_X}) + scaled_I;
+    wire signed [12:0] y_coord = $signed({1'b0, CENTER_Y}) - scaled_Q;
+    
+    wire [11:0] new_x = x_coord[11:0];
+    wire [10:0] new_y = y_coord[10:0];
 
     integer i;
 
@@ -203,20 +207,31 @@ module constellation_renderer
     // ========================================================================
     // Pixel Rendering — Check if current (h_cnt, v_cnt) matches any dot
     //
-    // For 2×2 pixels, we check if abs(h_cnt - dot_x) <= 1 AND
-    // abs(v_cnt - dot_y) <= 1.
+    // For 4×4 pixels, we check if abs(h_cnt - dot_x) <= 2 AND
+    // abs(v_cnt - dot_y) <= 2.
+    // Color dots by quadrant for better visualization.
     // ========================================================================
     logic pixel_hit;
+    logic [1:0] hit_quadrant;  // Which quadrant the hit dot is in
     
     // Combinational check against all buffered dots
     always_comb begin
         pixel_hit = 1'b0;
+        hit_quadrant = 2'b00;
         for (int j = 0; j < MAX_DOTS; j = j + 1) begin
             if (dot_valid[j]) begin
-                // Check 2×2 region around dot center
-                if ((h_cnt >= dot_x[j]) && (h_cnt < dot_x[j] + 2) &&
-                    (v_cnt >= dot_y[j]) && (v_cnt < dot_y[j] + 2))
+                // Check 4×4 region around dot center (larger, more visible)
+                if ((h_cnt >= dot_x[j]) && (h_cnt < dot_x[j] + 4) &&
+                    (v_cnt >= dot_y[j]) && (v_cnt < dot_y[j] + 4)) begin
                     pixel_hit = 1'b1;
+                    // Determine quadrant based on dot position relative to center
+                    hit_quadrant = {(dot_y[j] < CENTER_Y), (dot_x[j] >= CENTER_X)};
+                    // Quadrant encoding: [Q above center?, I positive?]
+                    // 2'b11 = Q1 (top-right: +I, +Q)
+                    // 2'b10 = Q2 (top-left:  -I, +Q)
+                    // 2'b00 = Q3 (bot-left:  -I, -Q)
+                    // 2'b01 = Q4 (bot-right: +I, -Q)
+                end
             end
         end
     end
@@ -247,23 +262,39 @@ module constellation_renderer
     );
 
     // ========================================================================
-    // RGB Output
+    // RGB Output with Color-Coded Quadrants
     // ========================================================================
-    // Priority: symbol dot (white) > decision grid (dark gray) > 
-    //           axis grid (gray) > background (black)
+    // Q1 (top-right, +I+Q):    Cyan    (bright, easy to spot)
+    // Q2 (top-left,  -I+Q):    Green
+    // Q3 (bot-left,  -I-Q):    Yellow
+    // Q4 (bot-right, +I-Q):    Magenta
+    // Decision bounds: dark blue
+    // Axis grid: gray
     // ========================================================================
+    logic [23:0] dot_color;
+    
+    always_comb begin
+        case (hit_quadrant)
+            2'b11:   dot_color = 24'h00FFFF;  // Q1: Cyan
+            2'b10:   dot_color = 24'h00FF00;  // Q2: Green
+            2'b00:   dot_color = 24'hFFFF00;  // Q3: Yellow
+            2'b01:   dot_color = 24'hFF00FF;  // Q4: Magenta
+            default: dot_color = 24'hFFFFFF;  // Fallback: White
+        endcase
+    end
+    
     always_ff @(posedge clk_pixel or negedge rst_n) begin
         if (!rst_n) begin
             rgb_pixel <= 24'h000000;
         end else if (h_active && v_active) begin
             if (pixel_hit)
-                rgb_pixel <= 24'hFFFFFF;         // White symbol dot
+                rgb_pixel <= dot_color;          // Colored symbol dot by quadrant
             else if (on_decision)
-                rgb_pixel <= 24'h303030;         // Dark gray decision bounds
+                rgb_pixel <= 24'h202040;         // Dark blue decision bounds
             else if (on_grid)
-                rgb_pixel <= 24'h606060;         // Gray axis/border
+                rgb_pixel <= 24'h404040;         // Gray axis/border
             else if (in_plot)
-                rgb_pixel <= 24'h101010;         // Very dark plot background
+                rgb_pixel <= 24'h000000;         // Black plot background
             else
                 rgb_pixel <= 24'h000000;         // Black outside plot
         end else begin
