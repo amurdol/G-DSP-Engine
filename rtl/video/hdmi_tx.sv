@@ -36,7 +36,7 @@ module hdmi_tx (
     input  logic        vsync,          // V-sync (active-low for VGA 480p)
     input  logic        de,             // Data enable (active video)
 
-    // TMDS outputs (active-mode LVCMOS33D, mimics LVDS)
+    // TMDS outputs (active-mode, differential via TLVDS_OBUF)
     output logic        tmds_clk_p,
     output logic        tmds_clk_n,
     output logic [2:0]  tmds_d_p,
@@ -243,12 +243,11 @@ module hdmi_tx (
     assign ser_out_clk = shift_clk[0];
 
     // ========================================================================
-    // LVDS Output Buffers (Pseudo-differential LVCMOS33D)
+    // Pseudo-differential Output
     //
-    // For Gowin GW1NR-9, use TLVDS_OBUF or direct assignment.
-    // In simulation, _n is simply the inverse of _p.
+    // Tang Nano 9K HDMI uses pseudo-differential LVCMOS (not true LVDS).
+    // We simply invert _p to generate _n. The HDMI connector has AC coupling.
     // ========================================================================
-`ifdef SIMULATION
     assign tmds_clk_p  = ser_out_clk;
     assign tmds_clk_n  = ~ser_out_clk;
     assign tmds_d_p[0] = ser_out_b;
@@ -257,31 +256,5 @@ module hdmi_tx (
     assign tmds_d_n[1] = ~ser_out_g;
     assign tmds_d_p[2] = ser_out_r;
     assign tmds_d_n[2] = ~ser_out_r;
-`else
-    // Gowin TLVDS_OBUF instantiation for synthesis
-    TLVDS_OBUF u_lvds_clk (
-        .I  (ser_out_clk),
-        .O  (tmds_clk_p),
-        .OB (tmds_clk_n)
-    );
-
-    TLVDS_OBUF u_lvds_d0 (
-        .I  (ser_out_b),
-        .O  (tmds_d_p[0]),
-        .OB (tmds_d_n[0])
-    );
-
-    TLVDS_OBUF u_lvds_d1 (
-        .I  (ser_out_g),
-        .O  (tmds_d_p[1]),
-        .OB (tmds_d_n[1])
-    );
-
-    TLVDS_OBUF u_lvds_d2 (
-        .I  (ser_out_r),
-        .O  (tmds_d_p[2]),
-        .OB (tmds_d_n[2])
-    );
-`endif
 
 endmodule : hdmi_tx

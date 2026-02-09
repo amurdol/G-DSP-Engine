@@ -1,9 +1,9 @@
-"""Generate RRC coefficients for 9 taps"""
+"""Generate RRC coefficients for 7 taps"""
 
 import numpy as np
 
 # Parameters
-num_taps = 9
+num_taps = 7
 sps = 4
 rolloff = 0.35
 frac_bits = 11

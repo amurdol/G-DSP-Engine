@@ -46,9 +46,9 @@ package gdsp_pkg;
     //   accum  width  = product + ceil(log2(NUM_TAPS))
     // ========================================================================
     parameter int PRODUCT_WIDTH = DATA_WIDTH + COEFF_WIDTH;  // 24
-    parameter int NUM_TAPS      = 9;             // RRC filter length (odd, reduced for resource)
-    parameter int ACCUM_EXTRA   = 4;             // ceil(log2(9)) = 4
-    parameter int ACCUM_WIDTH   = PRODUCT_WIDTH + ACCUM_EXTRA; // 28
+    parameter int NUM_TAPS      = 7;             // RRC filter length (odd, minimal for resource)
+    parameter int ACCUM_EXTRA   = 3;             // ceil(log2(7)) = 3
+    parameter int ACCUM_WIDTH   = PRODUCT_WIDTH + ACCUM_EXTRA; // 27
 
     // ========================================================================
     // 16-QAM Modulation
