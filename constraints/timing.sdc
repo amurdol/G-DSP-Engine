@@ -9,10 +9,10 @@ create_clock -name clk_27m -period 37.037 [get_ports {clk_27m}]
 
 # --- Generated clocks ---
 # clk_dsp:    27 MHz (same as clk_27m, directly connected)
-# clk_serial: 371.25 MHz (2.694 ns) — from Gowin_rPLL
-# clk_pixel:  74.25 MHz (13.468 ns) — from Gowin_CLKDIV (clk_serial / 5)
-create_clock -name clk_serial -period 2.694  [get_pins {u_pll/clkout}]
-create_clock -name clk_pixel  -period 13.468 [get_pins {u_clkdiv/clkout}]
+# clk_serial: 126 MHz (7.937 ns) — from Gowin_rPLL (VGA 480p TMDS)
+# clk_pixel:  25.2 MHz (39.683 ns) — from Gowin_CLKDIV (clk_serial / 5)
+create_clock -name clk_serial -period 7.937  [get_pins {u_pll/clkout}]
+create_clock -name clk_pixel  -period 39.683 [get_pins {u_clkdiv/clkout}]
 
 # --- Clock groups ---
 # clk_27m (clk_dsp) and clk_pixel/clk_serial are asynchronous

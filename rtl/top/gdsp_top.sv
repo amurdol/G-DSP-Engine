@@ -14,9 +14,9 @@
 //   │      ▼                                                              │
 //   │  ┌───────┐   clk_dsp (27 MHz)                                       │
 //   │  │ GW_PLL├──────────────────┐                                       │
-//   │  │       │   clk_pixel (74.25 MHz)                                  │
+//   │  │       │   clk_pixel (25.2 MHz, VGA 480p)                         │
 //   │  │       ├────────────────┐ │                                       │
-//   │  │       │   clk_serial (371.25 MHz)                                │
+//   │  │       │   clk_serial (126 MHz)                                   │
 //   │  │       ├──────────────┐ │ │                                       │
 //   │  └───────┘              │ │ │                                       │
 //   │                         │ │ │                                       │
@@ -63,13 +63,13 @@ module gdsp_top
     //       ├──────────────────────────────► clk_dsp (27 MHz, direct)
     //       │
     //       ▼
-    //   ┌─────────┐   clk_serial (371.25 MHz)
+    //   ┌─────────┐   clk_serial (126 MHz)
     //   │Gowin_rPLL├────────────────────────► to HDMI serialiser
     //   │         │         │
     //   └─────────┘         ▼
     //               ┌────────────┐
     //               │Gowin_CLKDIV│  ÷5
-    //               │            ├──────────► clk_pixel (74.25 MHz)
+    //               │            ├──────────► clk_pixel (25.2 MHz, VGA)
     //               └────────────┘
     //
     // ========================================================================
@@ -81,18 +81,18 @@ module gdsp_top
     // DSP clock = input clock directly (27 MHz)
     assign clk_dsp = clk_27m;
 
-    // rPLL: 27 MHz → 371.25 MHz
+    // rPLL: 27 MHz → 126 MHz (clk_serial for VGA 480p TMDS)
     Gowin_rPLL u_pll (
         .clkin  (clk_27m),
-        .clkout (clk_serial),    // 371.25 MHz
+        .clkout (clk_serial),    // 126 MHz
         .lock   (pll_lock)
     );
 
-    // CLKDIV: 371.25 MHz ÷ 5 → 74.25 MHz
+    // CLKDIV: 126 MHz ÷ 5 → 25.2 MHz (VGA 480p pixel clock)
     Gowin_CLKDIV u_clkdiv (
         .hclkin (clk_serial),
         .resetn (pll_lock),      // Hold in reset until PLL locks
-        .clkout (clk_pixel)      // 74.25 MHz
+        .clkout (clk_pixel)      // 25.2 MHz
     );
 
     // Combined reset: external button AND PLL lock
@@ -279,17 +279,19 @@ module gdsp_top
 endmodule : gdsp_top
 
 // ============================================================================
-// Gowin rPLL Black Box Declaration (Simulation Stub)
+// Gowin IP Simulation Stubs
 //
-// For synthesis, Gowin EDA uses the actual IP from src/gowin_rpll/gowin_rpll.v
+// These modules are ONLY for Icarus Verilog simulation.
+// For Gowin synthesis, the actual IPs in src/gowin_rpll/ and src/gowin_clkdiv/
+// are used instead.
 // ============================================================================
+`ifdef SIMULATION
+
 module Gowin_rPLL (
     input  logic clkin,
     output logic clkout,
     output logic lock
 );
-
-`ifdef SIMULATION
     // Simulation model: generate 371.25 MHz from any input
     assign lock = 1'b1;
 
@@ -297,31 +299,18 @@ module Gowin_rPLL (
     logic clk_ser_sim = 0;
     always #1.347 clk_ser_sim = ~clk_ser_sim;
     assign clkout = clk_ser_sim;
-`else
-    // Synthesis: provided by gowin_rpll.v IP
-`endif
-
 endmodule : Gowin_rPLL
 
-// ============================================================================
-// Gowin CLKDIV Black Box Declaration (Simulation Stub)
-//
-// For synthesis, Gowin EDA uses the actual IP from src/gowin_clkdiv/gowin_clkdiv.v
-// ============================================================================
 module Gowin_CLKDIV (
     input  logic hclkin,
     input  logic resetn,
     output logic clkout
 );
-
-`ifdef SIMULATION
     // Simulation model: divide input by 5
     // 371.25 MHz / 5 = 74.25 MHz — period 13.468 ns
     logic clk_pix_sim = 0;
     always #6.734 clk_pix_sim = ~clk_pix_sim;
     assign clkout = resetn ? clk_pix_sim : 1'b0;
-`else
-    // Synthesis: provided by gowin_clkdiv.v IP
-`endif
-
 endmodule : Gowin_CLKDIV
+
+`endif // SIMULATION

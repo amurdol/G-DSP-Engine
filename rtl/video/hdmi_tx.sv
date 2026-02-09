@@ -1,12 +1,12 @@
 // ============================================================================
-// G-DSP Engine — HDMI 720p60 Transmitter (DVI-compatible)
+// G-DSP Engine — HDMI 480p60 Transmitter (DVI-compatible)
 // ============================================================================
 // Author : G-DSP Team
 // Project: TFG — 16-QAM Baseband Processor on Gowin GW1NR-9
 // License: MIT
 // ============================================================================
 //
-// Implements TMDS encoding and 10:1 serialisation for HDMI 720p @ 60 Hz.
+// Implements TMDS encoding and 10:1 serialisation for HDMI 640×480 @ 60 Hz.
 // DVI-compatible (no audio, no InfoFrame packets — video only).
 //
 // Architecture:
@@ -15,8 +15,8 @@
 //   3. LVDS Output Buffers using TLVDS_OBUF primitive
 //
 // Clocking:
-//   clk_pixel  = 74.25 MHz (input)
-//   clk_serial = 371.25 MHz (5× pixel clock, from PLL)
+//   clk_pixel  = 25.2 MHz (input, VGA 640×480@60Hz)
+//   clk_serial = 126 MHz (5× pixel clock, from PLL)
 //
 // TMDS channels:
 //   D0 (Blue)  = B[7:0], hsync, vsync (during blanking)
@@ -26,14 +26,14 @@
 // ============================================================================
 
 module hdmi_tx (
-    input  logic        clk_pixel,      // 74.25 MHz pixel clock
-    input  logic        clk_serial,     // 371.25 MHz serial clock (5×)
+    input  logic        clk_pixel,      // 25.2 MHz pixel clock (VGA)
+    input  logic        clk_serial,     // 126 MHz serial clock (5×)
     input  logic        rst_n,
 
     // Video input
     input  logic [23:0] rgb,            // R[23:16] G[15:8] B[7:0]
-    input  logic        hsync,          // H-sync (active-high for 720p)
-    input  logic        vsync,          // V-sync (active-high for 720p)
+    input  logic        hsync,          // H-sync (active-low for VGA 480p)
+    input  logic        vsync,          // V-sync (active-low for VGA 480p)
     input  logic        de,             // Data enable (active video)
 
     // TMDS outputs (active-mode LVCMOS33D, mimics LVDS)

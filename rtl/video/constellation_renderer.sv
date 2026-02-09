@@ -6,13 +6,14 @@
 // License: MIT
 // ============================================================================
 //
-// Renders the IQ constellation onto a 720p60 video stream without external
-// memory.  Each received symbol paints a 2×2 pixel dot at the corresponding
-// (x,y) coordinate within a 640×640 plot area centered on the 1280×720 frame.
+// Renders the IQ constellation onto a 480p60 (VGA 640×480) video stream
+// without external memory.  Each received symbol paints a 2×2 pixel dot at
+// the corresponding (x,y) coordinate within a 256×256 plot area centered on
+// the 640×480 frame.
 //
 // Mapping (Q1.11 → pixel):
-//   px_x = 640 + (I >>> 4)    ← range [−2048..+2047] → [512..767] center
-//   px_y = 360 − (Q >>> 4)    ← inverted Y axis (positive Q = up)
+//   px_x = 320 + (I >>> 4)    ← range [−2048..+2047] → [192..447] center
+//   px_y = 240 − (Q >>> 4)    ← inverted Y axis (positive Q = up)
 //
 // The 2×2 dot is achieved by buffering the pixel coordinate and checking
 // if the current scan position falls within ±1 of the buffered point.
@@ -24,7 +25,7 @@
 module constellation_renderer
     import gdsp_pkg::*;
 (
-    input  logic        clk_pixel,      // 74.25 MHz pixel clock
+    input  logic        clk_pixel,      // 25.2 MHz pixel clock (VGA 480p)
     input  logic        rst_n,
 
     // ---- Symbol input (clk_dsp domain, synchronised outside) ----
@@ -40,34 +41,34 @@ module constellation_renderer
 );
 
     // ========================================================================
-    // 720p60 Timing Parameters (HDMI CEA-861)
+    // 480p60 VGA Timing Parameters (VESA DMT)
     // ========================================================================
-    // Horizontal:  1280 active + 110 fp + 40 sync + 220 bp = 1650 total
-    // Vertical:     720 active +   5 fp +  5 sync +  20 bp =  750 total
-    // Pixel clock: 74.25 MHz
+    // Horizontal:   640 active + 16 fp + 96 sync + 48 bp = 800 total
+    // Vertical:     480 active + 10 fp +  2 sync + 33 bp = 525 total
+    // Pixel clock: 25.175 MHz (≈25.2 MHz from PLL)
     // ========================================================================
-    localparam int H_ACTIVE  = 1280;
-    localparam int H_FP      = 110;
-    localparam int H_SYNC    = 40;
-    localparam int H_BP      = 220;
-    localparam int H_TOTAL   = H_ACTIVE + H_FP + H_SYNC + H_BP;  // 1650
+    localparam int H_ACTIVE  = 640;
+    localparam int H_FP      = 16;
+    localparam int H_SYNC    = 96;
+    localparam int H_BP      = 48;
+    localparam int H_TOTAL   = H_ACTIVE + H_FP + H_SYNC + H_BP;  // 800
 
-    localparam int V_ACTIVE  = 720;
-    localparam int V_FP      = 5;
-    localparam int V_SYNC    = 5;
-    localparam int V_BP      = 20;
-    localparam int V_TOTAL   = V_ACTIVE + V_FP + V_SYNC + V_BP;  // 750
+    localparam int V_ACTIVE  = 480;
+    localparam int V_FP      = 10;
+    localparam int V_SYNC    = 2;
+    localparam int V_BP      = 33;
+    localparam int V_TOTAL   = V_ACTIVE + V_FP + V_SYNC + V_BP;  // 525
 
-    // Plot area: 640×640 pixel square, centered horizontally
-    localparam int PLOT_SIZE   = 640;
-    localparam int PLOT_X_MIN  = (H_ACTIVE - PLOT_SIZE) / 2;  // 320
-    localparam int PLOT_X_MAX  = PLOT_X_MIN + PLOT_SIZE - 1;  // 959
-    localparam int PLOT_Y_MIN  = (V_ACTIVE - PLOT_SIZE) / 2;  // 40
-    localparam int PLOT_Y_MAX  = PLOT_Y_MIN + PLOT_SIZE - 1;  // 679
+    // Plot area: 256×256 pixel square, centered on screen
+    localparam int PLOT_SIZE   = 256;
+    localparam int PLOT_X_MIN  = (H_ACTIVE - PLOT_SIZE) / 2;  // 192
+    localparam int PLOT_X_MAX  = PLOT_X_MIN + PLOT_SIZE - 1;  // 447
+    localparam int PLOT_Y_MIN  = (V_ACTIVE - PLOT_SIZE) / 2;  // 112
+    localparam int PLOT_Y_MAX  = PLOT_Y_MIN + PLOT_SIZE - 1;  // 367
 
     // Plot center in pixel coordinates
-    localparam int CENTER_X    = H_ACTIVE / 2;  // 640
-    localparam int CENTER_Y    = V_ACTIVE / 2;  // 360
+    localparam int CENTER_X    = H_ACTIVE / 2;  // 320
+    localparam int CENTER_Y    = V_ACTIVE / 2;  // 240
 
     // ========================================================================
     // Horizontal and Vertical Counters
@@ -97,7 +98,7 @@ module constellation_renderer
     // ========================================================================
     // hsync: active during [H_ACTIVE + H_FP, H_ACTIVE + H_FP + H_SYNC - 1]
     // vsync: active during [V_ACTIVE + V_FP, V_ACTIVE + V_FP + V_SYNC - 1]
-    // Both are active-HIGH for 720p (CEA-861).
+    // Both are active-LOW for VGA 480p (VESA standard).
     // ========================================================================
     wire h_sync_region = (h_cnt >= H_ACTIVE + H_FP) &&
                          (h_cnt <  H_ACTIVE + H_FP + H_SYNC);

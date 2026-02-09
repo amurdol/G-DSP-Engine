@@ -145,12 +145,18 @@ package gdsp_pkg;
     endfunction
 
     // ========================================================================
-    // HDMI / Video
+    // HDMI / Video (VGA 640×480 @ 60 Hz)
     // ========================================================================
-    parameter int H_ACTIVE      = 1280;
-    parameter int V_ACTIVE      = 720;
-    parameter int H_TOTAL       = 1650;
-    parameter int V_TOTAL       = 750;
+    parameter int H_ACTIVE      = 640;
+    parameter int V_ACTIVE      = 480;
+    parameter int H_FP          = 16;
+    parameter int H_SYNC        = 96;
+    parameter int H_BP          = 48;
+    parameter int H_TOTAL       = 800;   // H_ACTIVE + H_FP + H_SYNC + H_BP
+    parameter int V_FP          = 10;
+    parameter int V_SYNC        = 2;
+    parameter int V_BP          = 33;
+    parameter int V_TOTAL       = 525;   // V_ACTIVE + V_FP + V_SYNC + V_BP
 
     // ========================================================================
     // PSRAM (HyperRAM — 64 Mbit = 8 MB)

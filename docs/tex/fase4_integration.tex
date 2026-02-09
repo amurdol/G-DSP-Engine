@@ -103,7 +103,7 @@ Esta fase abarca:
     \item Generaci\'{o}n de m\'{u}ltiples dominios de reloj mediante el
           PLL integrado de Gowin.
     \item Renderizado en tiempo real de la constelaci\'{o}n IQ sobre
-          salida HDMI a \SI{720}{p} @ \SI{60}{Hz}.
+          salida HDMI a VGA \SI{640}{\times}\SI{480}{} @ \SI{60}{Hz}.
     \item Interfaz f\'{\i}sica con botones y LEDs para control interactivo
           del nivel de ruido.
 \end{itemize}
@@ -138,8 +138,8 @@ diagrama de bloques simplificado.
     
     % Clocks out
     \draw[arrow] (pll.east) -- ++(0.8,0) node[right, font=\scriptsize] {clk\_dsp (27\,MHz)};
-    \draw[arrow] (pll.east) ++(0,-0.3) -- ++(0.8,0) node[right, font=\scriptsize] {clk\_pixel (74.25\,MHz)};
-    \draw[arrow] (pll.east) ++(0,-0.6) -- ++(0.8,0) node[right, font=\scriptsize] {clk\_serial (371.25\,MHz)};
+    \draw[arrow] (pll.east) ++(0,-0.3) -- ++(0.8,0) node[right, font=\scriptsize] {clk\_pixel (25.2\,MHz)};
+    \draw[arrow] (pll.east) ++(0,-0.6) -- ++(0.8,0) node[right, font=\scriptsize] {clk\_serial (126\,MHz)};
     
     % Clock in
     \draw[arrow] (-2,0) node[left, font=\scriptsize] {clk\_27m} -- (pll.west);
@@ -200,8 +200,8 @@ El dise\~{n}o opera con tres relojes derivados del oscilador de
 \textbf{Se\~{n}al} & \textbf{Frecuencia} & \textbf{Per\'{\i}odo} & \textbf{Uso} \\
 \midrule
 \texttt{clk\_dsp}    & \SI{27}{MHz}     & \SI{37,04}{ns} & L\'{o}gica del m\'{o}dem (TX/RX/Canal) \\
-\texttt{clk\_pixel}  & \SI{74,25}{MHz}  & \SI{13,47}{ns} & Pixel clock 720p60 \\
-\texttt{clk\_serial} & \SI{371,25}{MHz} & \SI{2,69}{ns}  & Serializador TMDS 10:1 \\
+\texttt{clk\_pixel}  & \SI{25,2}{MHz}   & \SI{39,68}{ns} & Pixel clock VGA 480p60 \\
+\texttt{clk\_serial} & \SI{126}{MHz}    & \SI{7,94}{ns}  & Serializador TMDS 10:1 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -241,20 +241,20 @@ se capturan directamente tras detectar el flanco sincronizado.
 % ============================================================================
 
 El m\'{o}dulo \texttt{constellation\_renderer} convierte las muestras IQ
-demoduladas en una imagen de v\'{\i}deo \SI{720}{p} (1280$\times$720) a
+demoduladas en una imagen de v\'{ı}deo VGA \SI{640}{\times}\SI{480}{} a
 \SI{60}{Hz}.
 
-\subsection{Conversi\'{o}n de Coordenadas Q1.11 a P\'{\i}xel}
+\subsection{Conversi\'{o}n de Coordenadas Q1.11 a P\'{ı}xel}
 
 Los valores I y Q en formato Q1.11 (rango $[-2048, +2047]$) se escalan a
-un \'{a}rea de dibujo de $640 \times 640$ p\'{\i}xeles centrada en la
+un \'{a}rea de dibujo de $256 \times 256$ p\'{ı}xeles centrada en la
 pantalla:
 
 \begin{align}
-    x_{\text{pixel}} &= 640 + \left\lfloor \frac{I}{16} \right\rfloor
-                      = 640 + (I \gg 4) \\
-    y_{\text{pixel}} &= 360 - \left\lfloor \frac{Q}{16} \right\rfloor
-                      = 360 - (Q \gg 4)
+    x_{\text{pixel}} &= 320 + \left\lfloor \frac{I}{16} \right\rfloor
+                      = 320 + (I \gg 4) \\
+    y_{\text{pixel}} &= 240 - \left\lfloor \frac{Q}{16} \right\rfloor
+                      = 240 - (Q \gg 4)
 \end{align}
 
 La divisi\'{o}n por 16 (desplazamiento de 4 bits) mapea el rango
@@ -287,10 +287,10 @@ referencia (gris oscuro):
 \begin{itemize}
     \item \textbf{Ejes}: l\'{\i}neas horizontal y vertical por el centro.
     \item \textbf{L\'{\i}mites de decisi\'{o}n}: l\'{\i}neas en
-          $x, y = \pm 81$ p\'{\i}xeles (correspondientes a $\pm 1296$ en
+          $x, y = \pm 51$ p\'{\i}xeles (correspondientes a $\pm 816$ en
           Q1.11, punto medio entre niveles QAM adyacentes).
     \item \textbf{Borde del \'{a}rea de dibujo}: rect\'{a}ngulo
-          $640 \times 640$.
+          $256 \times 256$.
 \end{itemize}
 
 
@@ -320,7 +320,7 @@ control que codifican \texttt{hsync} y \texttt{vsync}.
 
 \subsection{Serializaci\'{o}n 10:1}
 
-Los 10 bits TMDS se serializan a \SI{371,25}{MHz} usando un registro de
+Los 10 bits TMDS se serializan a \SI{126}{MHz} usando un registro de
 desplazamiento. LSB se transmite primero. En s\'{\i}ntesis para Gowin, se
 emplear\'{\i}a el primitivo \texttt{OSER10} para eficiencia.
 
@@ -480,7 +480,7 @@ recursos basada en s\'{\i}ntesis preliminar con Gowin EDA:
 
 \begin{table}[H]
 \centering
-\caption{Estimaci\'{o}n de recursos del sistema completo.}
+\caption{Estimaci\'{o}n de recursos del sistema completo (configuraci\'{o}n 480p).}
 \label{tab:resources}
 \begin{tabular}{@{}lrrr@{}}
 \toprule
@@ -500,6 +500,45 @@ seg\'{u}n opciones de optimizaci\'{o}n del sintetizador.
 
 
 % ============================================================================
+\section{Decisi\'{o}n de Dise\~{n}o: Resoluci\'{o}n 480p}
+\label{sec:design_tradeoff}
+% ============================================================================
+
+Durante la integraci\'{o}n, se identific\'{o} que la implementaci\'{o}n
+original a \SI{720}{p} con el filtro RRC de 33~taps exced\'{\i}a la
+capacidad de LUTs disponibles en la FPGA (8640). Se evaluaron dos
+alternativas:
+
+\begin{enumerate}
+    \item \textbf{Reducci\'{o}n del filtro RRC}: Disminuir de 33 a 17~taps,
+          sacrificando respuesta en frecuencia y rechazando menos ISI.
+    \item \textbf{Reducci\'{o}n de resoluci\'{o}n de video}: Cambiar de
+          \SI{720}{p} a VGA \SI{480}{p}, reduciendo la frecuencia del
+          reloj serial de \SI{371,25}{MHz} a \SI{126}{MHz}.
+\end{enumerate}
+
+Se opt\'{o} por la \textbf{estrategia Quality-First} (opci\'{o}n~2),
+priorizando la calidad de la se\~{n}al DSP sobre la resoluci\'{o}n
+visual. Esta decisi\'{o}n se justifica por:
+
+\begin{itemize}
+    \item El objetivo principal del proyecto es demostrar el procesamiento
+          de se\~{n}ales, no la calidad de imagen.
+    \item El filtro RRC completo garantiza la conformidad con el criterio
+          de Nyquist y minimiza ISI.
+    \item La reducci\'{o}n de frecuencia serial (de \SI{371}{MHz} a
+          \SI{126}{MHz}) mejora los m\'{a}rgenes de timing y reduce el
+          consumo de potencia.
+    \item VGA \SI{480}{p} es ampliamente compatible con monitores y
+          suficiente para visualizar la constelaci\'{o}n 16-QAM.
+\end{itemize}
+
+La arquitectura final utiliza un \'{a}rea de dibujo de $256 \times 256$
+p\'{\i}xeles centrada en el frame de $640 \times 480$, manteniendo
+visibilidad adecuada de los 16~puntos de la constelaci\'{o}n.
+
+
+% ============================================================================
 \section{Conclusiones de la Fase 4}
 \label{sec:conclusions}
 % ============================================================================
@@ -511,11 +550,13 @@ subsistemas en un demostrador funcional sobre Tang Nano~9K:
     \item \textbf{Cadena completa}: PRBS $\to$ QAM $\to$ RRC(TX) $\to$
           AWGN $\to$ RRC(RX) $\to$ Gardner $\to$ Costas $\to$ HDMI.
     \item \textbf{Visualizaci\'{o}n en tiempo real}: constelaci\'{o}n IQ
-          renderizada a \SI{720}{p}@\SI{60}{Hz} sin memoria externa.
+          renderizada a VGA \SI{480}{p}@\SI{60}{Hz} sin memoria externa.
     \item \textbf{Interacci\'{o}n f\'{\i}sica}: control de ruido por
           bot\'{o}n, indicadores LED de estado.
-    \item \textbf{Gesti\'{o}n de m\'{u}ltiples relojes}: PLL con tres
-          salidas, CDC con doble FF.
+    \item \textbf{Gesti\'{o}n de m\'{u}ltiples relojes}: PLL con dos
+          salidas + CLKDIV, CDC con doble FF.
+    \item \textbf{Tradeoff Quality-First}: se prioriz\'{o} la calidad
+          DSP (33~taps RRC) sobre resoluci\'{o}n de video (720p $\to$ 480p).
 \end{itemize}
 
 El sistema est\'{a} listo para demostraci\'{o}n pr\'{a}ctica, mostrando
