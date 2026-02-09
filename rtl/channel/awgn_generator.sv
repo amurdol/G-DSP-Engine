@@ -8,9 +8,9 @@
 //
 //   The CLT states that the sum of N independent, identically distributed
 //   (i.i.d.) uniform random variables converges to a Gaussian distribution
-//   as N grows.  For N = 16 uniform sources, the resulting distribution
-//   has excess kurtosis of only 3/16 ≈ 0.19 (vs. 0 for a true Gaussian),
-//   which is more than adequate for BER testing at Eb/No ≥ 4 dB.
+//   as N grows.  For N = 8 uniform sources, the resulting distribution
+//   has excess kurtosis of only 3/8 ≈ 0.375 (vs. 0 for a true Gaussian),
+//   which is acceptable for BER testing at Eb/No ≥ 6 dB.
 //
 //   Alternative approaches considered but rejected:
 //
@@ -25,15 +25,15 @@
 //
 // ---- Architecture ----
 //
-//   1. 16 independent LFSRs of different lengths (15–31 bits) with
+//   1. 8 independent LFSRs of different lengths (15–25 bits) with
 //      distinct primitive polynomials to eliminate cross-correlation.
 //      Each LFSR outputs its top 12 bits as a uniform sample.
 //
-//   2. The 16 unsigned 12-bit samples are summed (result: 16 bits).
+//   2. The 8 unsigned 12-bit samples are summed (result: 15 bits).
 //
 //   3. The mean of the sum is subtracted to center the distribution at
-//      zero: centred = sum − 16 × 2048 = sum − 32768.
-//      This yields a signed 17-bit value.
+//      zero: centred = sum − 8 × 2048 = sum − 16384.
+//      This yields a signed 16-bit value.
 //
 //   4. The centred value is normalised (right-shifted) and then scaled
 //      by noise_magnitude to control the output variance.
@@ -43,8 +43,8 @@
 // ---- Noise Magnitude to SNR Mapping ----
 //
 //   Each uniform LFSR output has variance σ²_u = (2^12)² / 12.
-//   Sum of 16 such variables: σ²_sum = 16 × (2^12)² / 12.
-//   After centring and normalisation (÷ 2^(4+FRAC_BITS)):
+//   Sum of 8 such variables: σ²_sum = 8 × (2^12)² / 12.
+//   After centring and normalisation (÷ 2^(3+FRAC_BITS)):
 //     σ²_norm ≈ 1/12.
 //   After scaling by noise_magnitude (M, 0..255):
 //     σ²_noise = (M/256)² × σ²_norm
@@ -83,9 +83,9 @@ module awgn_generator
 );
 
     // -----------------------------------------------------------------------
-    // Stage 1: 16 independent LFSRs with distinct primitive polynomials
+    // Stage 1: 8 independent LFSRs with distinct primitive polynomials
     // -----------------------------------------------------------------------
-    // Each LFSR has a different width (15..31 bits) and polynomial.
+    // Each LFSR has a different width (15..25 bits) and polynomial.
     // We extract the top DATA_WIDTH (12) bits as unsigned uniform output.
     //
     // Seeds are staggered to prevent identical start-up patterns.
@@ -160,29 +160,24 @@ module awgn_generator
     logic signed [NOISE_SUM_WIDTH:0] centred_r;
     logic en_d1, en_d2;
 
-    // Combinational adder tree in 4 levels (16→8→4→2→1)
-    logic [NOISE_SUM_WIDTH-1:0] lvl0 [0:7];
-    logic [NOISE_SUM_WIDTH-1:0] lvl1 [0:3];
-    logic [NOISE_SUM_WIDTH-1:0] lvl2 [0:1];
+    // Combinational adder tree in 3 levels (8→4→2→1)
+    logic [NOISE_SUM_WIDTH-1:0] lvl0 [0:3];
+    logic [NOISE_SUM_WIDTH-1:0] lvl1 [0:1];
 
     always_comb begin
-        // Level 0: pair-wise add (16 → 8)
-        for (int i = 0; i < 8; i++) begin
-            lvl0[i] = {4'b0, uniform[2*i]} + {4'b0, uniform[2*i+1]};
-        end
-        // Level 1: (8 → 4)
+        // Level 0: pair-wise add (8 → 4)
         for (int i = 0; i < 4; i++) begin
-            lvl1[i] = lvl0[2*i] + lvl0[2*i+1];
+            lvl0[i] = {3'b0, uniform[2*i]} + {3'b0, uniform[2*i+1]};
         end
-        // Level 2: (4 → 2)
-        lvl2[0] = lvl1[0] + lvl1[1];
-        lvl2[1] = lvl1[2] + lvl1[3];
-        // Level 3: (2 → 1)
-        sum_stage1 = lvl2[0] + lvl2[1];
+        // Level 1: (4 → 2)
+        lvl1[0] = lvl0[0] + lvl0[1];
+        lvl1[1] = lvl0[2] + lvl0[3];
+        // Level 2: (2 → 1)
+        sum_stage1 = lvl1[0] + lvl1[1];
     end
 
-    // Centre the sum: subtract mean (32768 = 2^15)
-    assign centred = $signed({1'b0, sum_stage1}) - $signed(17'sd32768);
+    // Centre the sum: subtract mean (16384 = 8 * 2048 = 8 * mid-scale of 12-bit)
+    assign centred = $signed({1'b0, sum_stage1}) - $signed(16'sd16384);
 
     // Pipeline register for sum
     always_ff @(posedge clk or negedge rst_n) begin
@@ -198,16 +193,16 @@ module awgn_generator
     // -----------------------------------------------------------------------
     // Stage 3 (pipeline register): Scale by noise_magnitude and truncate
     //
-    //   Normalised noise = centred_r >>> 4  (divide by 16 → ~unit variance)
+    //   Normalised noise = centred_r >>> 3  (divide by 8 → ~unit variance)
     //   This gives a 13-bit signed value with ~1 bit integer range.
     //
     //   Scaled noise = normalised × noise_magnitude / 256
-    //   Implemented as: (centred_r × noise_magnitude) >>> (4 + 8) = >>> 12
+    //   Implemented as: (centred_r × noise_magnitude) >>> (3 + 8) = >>> 11
     //
-    //   Product width: 17 + 8 = 25 bits signed.
-    //   After >>> 12: keep top 13 bits, truncate to 12 with saturation.
+    //   Product width: 16 + 8 = 24 bits signed.
+    //   After >>> 11: keep top 13 bits, truncate to 12 with saturation.
     // -----------------------------------------------------------------------
-    logic signed [NOISE_SUM_WIDTH + NOISE_MAG_WIDTH : 0] scaled_product; // 26 bits
+    logic signed [NOISE_SUM_WIDTH + NOISE_MAG_WIDTH : 0] scaled_product; // 24 bits
     logic signed [DATA_WIDTH-1:0] noise_trunc;
     sample_t noise_r;
     logic    valid_r;
@@ -215,10 +210,10 @@ module awgn_generator
     // Multiply centred noise by magnitude
     assign scaled_product = centred_r * $signed({1'b0, noise_magnitude});
 
-    // Shift right by 12 (÷16 for normalisation × ÷256 for magnitude scaling)
+    // Shift right by 11 (÷8 for normalisation × ÷256 for magnitude scaling)
     // and truncate to 12-bit Q1.11
     logic signed [NOISE_SUM_WIDTH + NOISE_MAG_WIDTH : 0] shifted;
-    assign shifted = scaled_product >>> 12;
+    assign shifted = scaled_product >>> 11;
 
     // Saturation to Q1.11 range [−2048, +2047]
     wire signed [DATA_WIDTH-1:0] shifted_trunc = shifted[DATA_WIDTH-1:0];

@@ -78,15 +78,15 @@ package gdsp_pkg;
 
     // ========================================================================
     // AWGN Channel — Noise Generator
-    //   Uses CLT (Central Limit Theorem) with 16 uniform LFSR sources.
-    //   Each LFSR output is 12 bits; sum of 16 → 16-bit; shift/truncate → 12.
+    //   Uses CLT (Central Limit Theorem) with 8 uniform LFSR sources.
+    //   Each LFSR output is 12 bits; sum of 8 → 15-bit; shift/truncate → 12.
     //   noise_mag register: unsigned 8-bit scaling factor (0..255).
     //     Effective noise_rms ≈ noise_mag / 256 (in Q1.11 units).
     // ========================================================================
-    parameter int NUM_LFSR_NOISE  = 16;            // LFSRs for CLT sum
+    parameter int NUM_LFSR_NOISE  = 8;             // LFSRs for CLT sum (reduced for resource)
     parameter int NOISE_MAG_WIDTH = 8;             // Bits for noise_magnitude register
-    parameter int NOISE_SUM_WIDTH = DATA_WIDTH + 4; // 16 bits (12 + log2(16))
-    parameter int NOISE_PROD_W    = NOISE_SUM_WIDTH + NOISE_MAG_WIDTH; // 24
+    parameter int NOISE_SUM_WIDTH = DATA_WIDTH + 3; // 15 bits (12 + log2(8))
+    parameter int NOISE_PROD_W    = NOISE_SUM_WIDTH + NOISE_MAG_WIDTH; // 23
 
     // LFSR polynomials — ALL verified primitive trinomials (x^n + x^k + 1).
     //   Sources: Xilinx XAPP052, P. Alfke (1996); New (2005) table.
