@@ -129,9 +129,9 @@ diagrama de bloques simplificado.
     block/.style={draw, rectangle, minimum width=2.2cm, minimum height=1cm,
                   align=center, font=\footnotesize},
     pll/.style={draw, rectangle, rounded corners, minimum width=1.8cm,
-                minimum height=1.2cm, fill=yellow!20, font=\footnotesize},
+                minimum height=1.2cm, fill=yellow!20, align=center, font=\footnotesize},
     arrow/.style={-{Stealth[length=2mm]}, thick},
-    domain/.style={draw, dashed, rounded corners, inner sep=8pt}
+    dbox/.style={draw, dashed, rounded corners, inner sep=8pt}
 ]
     % PLL
     \node[pll] (pll) at (0,0) {Gowin\\PLL};
@@ -153,7 +153,7 @@ diagrama de bloques simplificado.
     \draw[arrow] (ch) -- (rx);
     
     % Domain box DSP
-    \node[domain, fit=(tx)(ch)(rx), label={[font=\scriptsize]above:Dominio clk\_dsp}] (dsp_domain) {};
+    \node[dbox, fit=(tx)(ch)(rx), label={[font=\scriptsize]above:{Dominio clk\_dsp}}] (dsp_domain) {};
 
     % Video Domain
     \node[block, fill=purple!10] (renderer) at (7.5, -1.5) {constellation\\renderer};
@@ -162,7 +162,7 @@ diagrama de bloques simplificado.
     \draw[arrow] (renderer) -- (hdmi);
     
     % Domain box Video
-    \node[domain, fit=(renderer)(hdmi), label={[font=\scriptsize]above:Dominio clk\_pixel}] (vid_domain) {};
+    \node[dbox, fit=(renderer)(hdmi), label={[font=\scriptsize]above:{Dominio clk\_pixel}}] (vid_domain) {};
     
     % CDC
     \draw[arrow, dashed, blue] (rx.south) -- ++(0,-0.8) -| (renderer.north)
