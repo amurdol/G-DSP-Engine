@@ -28,7 +28,7 @@ sim/out/
 # --- Gowin EDA ---
 gowin/**/impl/
 gowin/**/temp/
-gowin/**/src/
+# gowin/**/src/  ← Track IP cores for reproducibility
 *.gprj.user
 *.log
 *.rpt
