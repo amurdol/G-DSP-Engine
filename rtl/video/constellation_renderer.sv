@@ -239,21 +239,54 @@ module constellation_renderer
     // ========================================================================
     // Background Grid (optional visual aid)
     //
-    // Draw faint gray grid lines at plot boundaries and center axes.
+    // Draw enhanced grid with thick center axes, tick marks at QAM symbol
+    // positions, and decision boundaries.
     // ========================================================================
     wire in_plot = (h_cnt >= PLOT_X_MIN) && (h_cnt <= PLOT_X_MAX) &&
                    (v_cnt >= PLOT_Y_MIN) && (v_cnt <= PLOT_Y_MAX);
 
-    wire on_grid_x = (h_cnt == PLOT_X_MIN) || (h_cnt == PLOT_X_MAX) ||
-                     (h_cnt == CENTER_X);
-    wire on_grid_y = (v_cnt == PLOT_Y_MIN) || (v_cnt == PLOT_Y_MAX) ||
-                     (v_cnt == CENTER_Y);
-    wire on_grid = in_plot && (on_grid_x || on_grid_y);
+    // Center axes (thicker for visibility: 3 pixels wide)
+    wire on_axis_x = (h_cnt >= CENTER_X - 1) && (h_cnt <= CENTER_X + 1);
+    wire on_axis_y = (v_cnt >= CENTER_Y - 1) && (v_cnt <= CENTER_Y + 1);
+    wire on_main_axis = in_plot && (on_axis_x || on_axis_y);
 
-    // Quadrant division lines (±648 and ±1943 normalized levels → pixel)
-    // For visual reference, mark the decision boundaries at ±1296/16 = ±81 pixels
-    // (midpoint between ±648 and ±1943)
-    localparam int BOUNDARY_OFFSET = 81;  // 1296 >> 4
+    // Plot boundary box
+    wire on_border = in_plot && (
+        (h_cnt == PLOT_X_MIN) || (h_cnt == PLOT_X_MAX) ||
+        (v_cnt == PLOT_Y_MIN) || (v_cnt == PLOT_Y_MAX)
+    );
+
+    // Tick marks at 16-QAM symbol positions
+    // Inner levels: ±648 >> 4 = ±40 pixels
+    // Outer levels: ±1943 >> 4 = ±121 pixels
+    localparam int TICK_INNER = 40;
+    localparam int TICK_OUTER = 121;
+    localparam int TICK_LENGTH = 8;  // 8 pixels long
+    
+    wire on_tick_x = in_plot && (
+        // Horizontal ticks on Y-axis (marking I values)
+        ((v_cnt >= CENTER_Y - TICK_LENGTH) && (v_cnt <= CENTER_Y + TICK_LENGTH)) && (
+            (h_cnt == CENTER_X - TICK_OUTER) ||
+            (h_cnt == CENTER_X - TICK_INNER) ||
+            (h_cnt == CENTER_X + TICK_INNER) ||
+            (h_cnt == CENTER_X + TICK_OUTER)
+        )
+    );
+    
+    wire on_tick_y = in_plot && (
+        // Vertical ticks on X-axis (marking Q values)
+        ((h_cnt >= CENTER_X - TICK_LENGTH) && (h_cnt <= CENTER_X + TICK_LENGTH)) && (
+            (v_cnt == CENTER_Y - TICK_OUTER) ||
+            (v_cnt == CENTER_Y - TICK_INNER) ||
+            (v_cnt == CENTER_Y + TICK_INNER) ||
+            (v_cnt == CENTER_Y + TICK_OUTER)
+        )
+    );
+
+    wire on_ticks = on_tick_x || on_tick_y;
+
+    // Decision boundary lines (midpoint between inner and outer: ±81 pixels)
+    localparam int BOUNDARY_OFFSET = 81;  // (40 + 121) / 2 ≈ 81
     wire on_decision = in_plot && (
         (h_cnt == CENTER_X - BOUNDARY_OFFSET) ||
         (h_cnt == CENTER_X + BOUNDARY_OFFSET) ||
@@ -269,7 +302,9 @@ module constellation_renderer
     // Q3 (bot-left,  -I-Q):    Yellow
     // Q4 (bot-right, +I-Q):    Magenta
     // Decision bounds: dark blue
-    // Axis grid: gray
+    // Main axes: white (thick, prominent)
+    // Ticks: light gray
+    // Border: medium gray
     // ========================================================================
     logic [23:0] dot_color;
     
@@ -289,10 +324,14 @@ module constellation_renderer
         end else if (h_active && v_active) begin
             if (pixel_hit)
                 rgb_pixel <= dot_color;          // Colored symbol dot by quadrant
+            else if (on_main_axis)
+                rgb_pixel <= 24'h808080;         // White main axes (prominent)
+            else if (on_ticks)
+                rgb_pixel <= 24'h606060;         // Light gray tick marks
             else if (on_decision)
-                rgb_pixel <= 24'h202040;         // Dark blue decision bounds
-            else if (on_grid)
-                rgb_pixel <= 24'h404040;         // Gray axis/border
+                rgb_pixel <= 24'h202060;         // Dark blue decision bounds
+            else if (on_border)
+                rgb_pixel <= 24'h404040;         // Medium gray border
             else if (in_plot)
                 rgb_pixel <= 24'h000000;         // Black plot background
             else
