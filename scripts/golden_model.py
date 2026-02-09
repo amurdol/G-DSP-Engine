@@ -4,7 +4,7 @@
 # *** SOURCE OF TRUTH FOR TESTBENCHES ***
 # This script is the bit-true reference for the FPGA implementation.
 # All RTL testbenches load vectors generated here from sim/vectors/.
-# Parameters: Q1.11 (12-bit), RRC α=0.25, 33 taps, SPS=4, 16-QAM Gray.
+# Parameters: Q1.11 (12-bit), RRC α=0.25, 17 taps (default), SPS=4, 16-QAM Gray.
 # ============================================================================
 # This script is the bit-true reference for the FPGA implementation.
 # It generates, modulates, filters, and exports all data needed for
@@ -463,7 +463,7 @@ def main():
     )
     parser.add_argument("--sps", type=int, default=4, help="Samples per symbol (default: 4)")
     parser.add_argument(
-        "--ntaps", type=int, default=33, help="RRC filter taps (default: 33, must be odd)"
+        "--ntaps", type=int, default=17, help="RRC filter taps (default: 17, must be odd)"
     )
     parser.add_argument(
         "--alpha", type=float, default=0.25, help="RRC roll-off factor (default: 0.25)"

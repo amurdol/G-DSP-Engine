@@ -500,42 +500,40 @@ seg\'{u}n opciones de optimizaci\'{o}n del sintetizador.
 
 
 % ============================================================================
-\section{Decisi\'{o}n de Dise\~{n}o: Resoluci\'{o}n 480p}
+\section{Decisi\'{o}n de Dise\~{n}o: Optimizaci\'{o}n de Recursos}
 \label{sec:design_tradeoff}
 % ============================================================================
 
 Durante la integraci\'{o}n, se identific\'{o} que la implementaci\'{o}n
 original a \SI{720}{p} con el filtro RRC de 33~taps exced\'{\i}a la
-capacidad de LUTs disponibles en la FPGA (8640). Se evaluaron dos
-alternativas:
+capacidad de LUTs disponibles en la FPGA (8640 elementos). Tras aplicar
+inicialmente la reducci\'{o}n a \SI{480}{p}, el dise\~{n}o a\'{u}n
+superaba los recursos (13,117 elementos). Se opt\'{o} por aplicar
+ambas estrategias de optimizaci\'{o}n:
 
 \begin{enumerate}
-    \item \textbf{Reducci\'{o}n del filtro RRC}: Disminuir de 33 a 17~taps,
-          sacrificando respuesta en frecuencia y rechazando menos ISI.
-    \item \textbf{Reducci\'{o}n de resoluci\'{o}n de video}: Cambiar de
-          \SI{720}{p} a VGA \SI{480}{p}, reduciendo la frecuencia del
-          reloj serial de \SI{371,25}{MHz} a \SI{126}{MHz}.
+    \item \textbf{Reducci\'{o}n de resoluci\'{o}n de video}: De \SI{720}{p}
+          a VGA \SI{480}{p}, reduciendo la frecuencia serial de
+          \SI{371,25}{MHz} a \SI{126}{MHz}.
+    \item \textbf{Reducci\'{o}n del filtro RRC}: De 33 a 17~taps,
+          manteniendo la simetr\'{\i}a y el roll-off $\alpha = 0.25$.
 \end{enumerate}
 
-Se opt\'{o} por la \textbf{estrategia Quality-First} (opci\'{o}n~2),
-priorizando la calidad de la se\~{n}al DSP sobre la resoluci\'{o}n
-visual. Esta decisi\'{o}n se justifica por:
+\subsection{Justificaci\'{o}n del Filtro de 17 Taps}
+
+El filtro RRC de 17~taps representa un compromiso razonable:
 
 \begin{itemize}
-    \item El objetivo principal del proyecto es demostrar el procesamiento
-          de se\~{n}ales, no la calidad de imagen.
-    \item El filtro RRC completo garantiza la conformidad con el criterio
-          de Nyquist y minimiza ISI.
-    \item La reducci\'{o}n de frecuencia serial (de \SI{371}{MHz} a
-          \SI{126}{MHz}) mejora los m\'{a}rgenes de timing y reduce el
-          consumo de potencia.
-    \item VGA \SI{480}{p} es ampliamente compatible con monitores y
-          suficiente para visualizar la constelaci\'{o}n 16-QAM.
+    \item A\'{u}n cubre aproximadamente 4~per\'{\i}odos de s\'{\i}mbolo
+          (17 taps / 4 SPS $\approx$ 4 s\'{\i}mbolos).
+    \item Mantiene simetr\'{\i}a par (Tipo~I), garantizando fase lineal.
+    \item El SQNR de cuantizaci\'{o}n permanece alto ($>$\SI{60}{dB}).
+    \item Reduce $\sim$50\% de los multiplicadores respecto a 33~taps.
+    \item Es suficiente para prop\'{o}sitos did\'{a}cticos del TFG.
 \end{itemize}
 
-La arquitectura final utiliza un \'{a}rea de dibujo de $256 \times 256$
-p\'{\i}xeles centrada en el frame de $640 \times 480$, manteniendo
-visibilidad adecuada de los 16~puntos de la constelaci\'{o}n.
+Para aplicaciones de producci\'{o}n, se recomendar\'{\i}a un filtro
+m\'{a}s largo o una FPGA de mayor capacidad (ej.~GW2AR con $>$18k~LUTs).
 
 
 % ============================================================================
@@ -555,8 +553,8 @@ subsistemas en un demostrador funcional sobre Tang Nano~9K:
           bot\'{o}n, indicadores LED de estado.
     \item \textbf{Gesti\'{o}n de m\'{u}ltiples relojes}: PLL con dos
           salidas + CLKDIV, CDC con doble FF.
-    \item \textbf{Tradeoff Quality-First}: se prioriz\'{o} la calidad
-          DSP (33~taps RRC) sobre resoluci\'{o}n de video (720p $\to$ 480p).
+    \item \textbf{Optimizaci\'{o}n de recursos}: 480p + 17~taps RRC para
+          caber en los 8640~LUTs del GW1NR-9.
 \end{itemize}
 
 El sistema est\'{a} listo para demostraci\'{o}n pr\'{a}ctica, mostrando

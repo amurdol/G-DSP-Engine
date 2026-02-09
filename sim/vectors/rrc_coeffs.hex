@@ -1,13 +1,5 @@
-// RRC α=0.25, 33 taps, SPS=4
-// Format: Q1.11 (12-bit signed), 33 values
-012
-009
-FF0
-FDB
-FE0
-005
-038
-051
+// RRC α=0.25, 17 taps, SPS=4
+// Format: Q1.11 (12-bit signed), 17 values
 02E
 FD1
 F6D
@@ -25,11 +17,3 @@ F55
 F6D
 FD1
 02E
-051
-038
-005
-FE0
-FDB
-FF0
-009
-012
