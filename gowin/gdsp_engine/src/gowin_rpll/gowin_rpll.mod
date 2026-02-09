@@ -13,11 +13,11 @@
 -file_type vlg
 -dev_type GW1NR-9C
 -dyn_idiv_sel false
--idiv_sel 4
+-idiv_sel 3
 -dyn_fbdiv_sel false
--fbdiv_sel 55
+-fbdiv_sel 14
 -dyn_odiv_sel false
--odiv_sel 2
+-odiv_sel 4
 -dyn_da_en true
 -rst_sig false
 -rst_sig_p false
