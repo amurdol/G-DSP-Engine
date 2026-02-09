@@ -40,11 +40,12 @@ rPLL rpll_inst (
 
 defparam rpll_inst.FCLKIN = "27";
 defparam rpll_inst.DYN_IDIV_SEL = "false";
-defparam rpll_inst.IDIV_SEL = 2;
+defparam rpll_inst.IDIV_SEL = 0;     // Divide by 1
 defparam rpll_inst.DYN_FBDIV_SEL = "false";
-defparam rpll_inst.FBDIV_SEL = 55;  // 27 * 56 / 3 / 4 = 126 MHz
+defparam rpll_inst.FBDIV_SEL = 19;   // Multiply by 20: VCO = 27*20 = 540 MHz
 defparam rpll_inst.DYN_ODIV_SEL = "false";
-defparam rpll_inst.ODIV_SEL = 4;
+defparam rpll_inst.ODIV_SEL = 2;     // Divide by 2: CLKOUT = 540/2 = 270 MHz
+                                      // Buggy formula: 27*20*2 = 1080 MHz (in range!)
 defparam rpll_inst.PSDA_SEL = "0000";
 defparam rpll_inst.DYN_DA_EN = "true";
 defparam rpll_inst.DUTYDA_SEL = "1000";

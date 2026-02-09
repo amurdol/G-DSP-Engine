@@ -47,7 +47,7 @@ module gdsp_top
     input  logic        btn_user,       // User button S1 (noise control)
     output logic [5:0]  led,            // Onboard LEDs (active-low)
 
-    // --- HDMI TMDS output ---
+    // --- HDMI TMDS output (differential via ELVDS_OBUF) ---
     output logic        tmds_clk_p,
     output logic        tmds_clk_n,
     output logic [2:0]  tmds_data_p,
@@ -81,7 +81,7 @@ module gdsp_top
     // DSP clock = input clock directly (27 MHz)
     assign clk_dsp = clk_27m;
 
-    // rPLL: 27 MHz → 126 MHz (clk_serial for VGA 480p TMDS)
+    // rPLL: 27 MHz → 126 MHz (clk_serial for VGA 480p TMDS DDR)
     Gowin_rPLL u_pll (
         .clkin  (clk_27m),
         .clkout (clk_serial),    // 126 MHz
@@ -254,27 +254,31 @@ module gdsp_top
     );
 
     // ========================================================================
-    // LED Indicators (active-low)
+    // LED Indicators (active-low) - NO dependen de PLL lock para debug
     //
-    // LED[0]: Heartbeat (~0.8 Hz blink)
-    // LED[1]: Costas lock indicator
-    // LED[3:2]: Noise level binary (00=0, 01=20, 10=50, 11=100)
-    // LED[5:4]: Reserved / PLL lock
+    // LED[0]: Heartbeat (~0.8 Hz blink) - usa rst_n directo
+    // LED[1]: PLL lock status (lit = locked)
+    // LED[2]: Costas lock indicator (lit = locked)
+    // LED[3]: sys_rst_n status (lit = system running)
+    // LED[4]: Noise level bit 0
+    // LED[5]: Noise level bit 1
     // ========================================================================
     logic [24:0] heartbeat_cnt;
 
-    always_ff @(posedge clk_dsp or negedge sys_rst_n) begin
-        if (!sys_rst_n)
+    // Heartbeat usa rst_n directo, NO sys_rst_n
+    always_ff @(posedge clk_dsp or negedge rst_n) begin
+        if (!rst_n)
             heartbeat_cnt <= '0;
         else
             heartbeat_cnt <= heartbeat_cnt + 1'b1;
     end
 
-    assign led[0] = ~heartbeat_cnt[24];   // Heartbeat
-    assign led[1] = ~demod_lock;          // Lock indicator (lit when locked)
-    assign led[3:2] = ~noise_sel;         // Noise level (inverted for active-low)
-    assign led[4] = ~pll_lock;            // PLL lock (lit when locked)
-    assign led[5] = 1'b1;                 // Off
+    assign led[0] = ~heartbeat_cnt[24];   // Heartbeat (debe parpadear siempre)
+    assign led[1] = ~pll_lock;            // PLL lock (diagnóstico crítico)
+    assign led[2] = ~demod_lock;          // Costas lock
+    assign led[3] = ~sys_rst_n;           // System running indicator
+    assign led[4] = ~noise_sel[0];        // Noise level bit 0
+    assign led[5] = ~noise_sel[1];        // Noise level bit 1
 
 endmodule : gdsp_top
 

@@ -5,42 +5,24 @@
     <Version>5</Version>
     <Device name="GW1NR-9C" pn="GW1NR-LV9QN88PC6/I5">gw1nr9c-004</Device>
     <FileList>
-        <!-- Generated IP cores -->
-        <File path="src/gowin_rpll/gowin_rpll.v" type="file.verilog" enable="1"/>
+        <File path="src/dvi_tx/dvi_tx.v" type="file.verilog" enable="1"/>
         <File path="src/gowin_clkdiv/gowin_clkdiv.v" type="file.verilog" enable="1"/>
-        
-        <!-- Package -->
-        <File path="../../rtl/packages/gdsp_pkg.sv" type="file.verilog" enable="1"/>
-        
-        <!-- Common -->
-        <File path="../../rtl/common/bit_gen.sv" type="file.verilog" enable="1"/>
-        
-        <!-- Modem TX/RX -->
-        <File path="../../rtl/modem/qam16_mapper.sv" type="file.verilog" enable="1"/>
-        <File path="../../rtl/modem/rrc_filter.sv" type="file.verilog" enable="1"/>
-        <File path="../../rtl/modem/tx_top.sv" type="file.verilog" enable="1"/>
-        <File path="../../rtl/modem/rx_top.sv" type="file.verilog" enable="1"/>
-        
-        <!-- Channel -->
-        <File path="../../rtl/channel/awgn_generator.sv" type="file.verilog" enable="1"/>
-        <File path="../../rtl/channel/awgn_channel.sv" type="file.verilog" enable="1"/>
-        
-        <!-- Synchronisation -->
-        <File path="../../rtl/sync/gardner_ted.sv" type="file.verilog" enable="1"/>
-        <File path="../../rtl/sync/costas_loop.sv" type="file.verilog" enable="1"/>
-        
-        <!-- Video -->
-        <File path="../../rtl/video/constellation_renderer.sv" type="file.verilog" enable="1"/>
-        <File path="../../rtl/video/hdmi_tx.sv" type="file.verilog" enable="1"/>
-        
-        <!-- Top-level -->
-        <File path="../../rtl/top/gdsp_top.sv" type="file.verilog" enable="1"/>
-        
-        <!-- Memory init -->
-        <File path="../../sim/vectors/rrc_coeffs.v" type="file.verilog" enable="1"/>
-        
-        <!-- Constraints -->
-        <File path="../../constraints/tangnano9k.cst" type="file.cst" enable="1"/>
-        <File path="../../constraints/timing.sdc" type="file.sdc" enable="1"/>
+        <File path="src/gowin_rpll/gowin_rpll.v" type="file.verilog" enable="1"/>
+        <File path="C:/Users/aleja/Documents/Proyectos/G-DSP-Engine/rtl/channel/awgn_channel.sv" type="file.verilog" enable="1"/>
+        <File path="C:/Users/aleja/Documents/Proyectos/G-DSP-Engine/rtl/channel/awgn_generator.sv" type="file.verilog" enable="1"/>
+        <File path="C:/Users/aleja/Documents/Proyectos/G-DSP-Engine/rtl/common/bit_gen.sv" type="file.verilog" enable="1"/>
+        <File path="C:/Users/aleja/Documents/Proyectos/G-DSP-Engine/rtl/modem/qam16_mapper.sv" type="file.verilog" enable="1"/>
+        <File path="C:/Users/aleja/Documents/Proyectos/G-DSP-Engine/rtl/modem/rrc_filter.sv" type="file.verilog" enable="1"/>
+        <File path="C:/Users/aleja/Documents/Proyectos/G-DSP-Engine/rtl/modem/rx_top.sv" type="file.verilog" enable="1"/>
+        <File path="C:/Users/aleja/Documents/Proyectos/G-DSP-Engine/rtl/modem/tx_top.sv" type="file.verilog" enable="1"/>
+        <File path="C:/Users/aleja/Documents/Proyectos/G-DSP-Engine/rtl/packages/gdsp_pkg.sv" type="file.verilog" enable="1"/>
+        <File path="C:/Users/aleja/Documents/Proyectos/G-DSP-Engine/rtl/sync/costas_loop.sv" type="file.verilog" enable="1"/>
+        <File path="C:/Users/aleja/Documents/Proyectos/G-DSP-Engine/rtl/sync/gardner_ted.sv" type="file.verilog" enable="1"/>
+        <File path="C:/Users/aleja/Documents/Proyectos/G-DSP-Engine/rtl/top/gdsp_top.sv" type="file.verilog" enable="1"/>
+        <File path="C:/Users/aleja/Documents/Proyectos/G-DSP-Engine/rtl/video/constellation_renderer.sv" type="file.verilog" enable="1"/>
+        <File path="C:/Users/aleja/Documents/Proyectos/G-DSP-Engine/rtl/video/hdmi_tx.sv" type="file.verilog" enable="1"/>
+        <File path="C:/Users/aleja/Documents/Proyectos/G-DSP-Engine/sim/vectors/rrc_coeffs.v" type="file.verilog" enable="1"/>
+        <File path="C:/Users/aleja/Documents/Proyectos/G-DSP-Engine/constraints/tangnano9k.cst" type="file.cst" enable="1"/>
+        <File path="C:/Users/aleja/Documents/Proyectos/G-DSP-Engine/constraints/timing.sdc" type="file.sdc" enable="1"/>
     </FileList>
 </Project>

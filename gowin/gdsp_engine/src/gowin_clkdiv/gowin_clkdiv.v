@@ -24,7 +24,7 @@ CLKDIV clkdiv_inst (
     .CALIB(gw_gnd)
 );
 
-defparam clkdiv_inst.DIV_MODE = "5";
+defparam clkdiv_inst.DIV_MODE = "10";  // 270/10 = 27 MHz pixel clock
 defparam clkdiv_inst.GSREN = "false";
 
 endmodule //Gowin_CLKDIV
