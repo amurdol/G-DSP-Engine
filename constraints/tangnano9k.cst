@@ -33,15 +33,16 @@ IO_PORT "led[4]" IO_TYPE=LVCMOS18 DRIVE=8;
 IO_PORT "led[5]" IO_TYPE=LVCMOS18 DRIVE=8;
 
 // --- HDMI (TMDS differential via ELVDS_OBUF) ---
-// ELVDS_OBUF primitive handles IO type automatically - no IO_PORT declarations
-IO_LOC  "tmds_clk_p"     69;
-IO_LOC  "tmds_clk_n"     70;
-IO_LOC  "tmds_data_p[0]" 71;
-IO_LOC  "tmds_data_n[0]" 72;
-IO_LOC  "tmds_data_p[1]" 73;
-IO_LOC  "tmds_data_n[1]" 74;
-IO_LOC  "tmds_data_p[2]" 75;
-IO_LOC  "tmds_data_n[2]" 76;
+// Sintaxis de pares diferenciales: especificar ambos pines (p,n) en una línea
+// Según ejemplo oficial Sipeed picotiny
+IO_LOC  "tmds_clk_p"     69,68;
+IO_PORT "tmds_clk_p"     PULL_MODE=NONE DRIVE=8;
+IO_LOC  "tmds_data_p[0]" 71,70;
+IO_PORT "tmds_data_p[0]" PULL_MODE=NONE DRIVE=8;
+IO_LOC  "tmds_data_p[1]" 73,72;
+IO_PORT "tmds_data_p[1]" PULL_MODE=NONE DRIVE=8;
+IO_LOC  "tmds_data_p[2]" 75,74;
+IO_PORT "tmds_data_p[2]" PULL_MODE=NONE DRIVE=8;
 
 // --- PSRAM (HyperRAM — internal to GW1NR-9 package) ---
 // The PSRAM die is bonded inside the GW1NR SiP. Access is via Gowin's

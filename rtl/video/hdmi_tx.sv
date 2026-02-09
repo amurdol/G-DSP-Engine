@@ -16,7 +16,7 @@
 //
 // Clocking:
 //   clk_pixel  = 25.2 MHz (input, VGA 640×480@60Hz)
-//   clk_serial = 126 MHz (5× pixel clock, from PLL)
+//   clk_serial = 252 MHz (10× pixel clock, from PLL)
 //
 // TMDS channels:
 //   D0 (Blue)  = B[7:0], hsync, vsync (during blanking)
@@ -36,7 +36,7 @@ module hdmi_tx (
     input  logic        vsync,          // V-sync (active-low for VGA 480p)
     input  logic        de,             // Data enable (active video)
 
-    // TMDS outputs (active-mode, differential via TLVDS_OBUF)
+    // TMDS outputs (differential pairs via ELVDS_OBUF)
     output logic        tmds_clk_p,
     output logic        tmds_clk_n,
     output logic [2:0]  tmds_d_p,
@@ -200,61 +200,94 @@ module hdmi_tx (
     wire [9:0] tmds_clk = 10'b0000011111;
 
     // ========================================================================
-    // 10:1 Serialiser (Gowin OSER10 primitive)
+    // 10:1 Serialiser using Gowin OSER10 Primitive
     //
-    // OSER10 serialises 10 bits per pixel clock using the 5× serial clock.
-    // LSB is transmitted first.
+    // OSER10 serialises 10 parallel bits to 1 serial output using DDR mode.
+    // NOTE: GW1NR-9 doesn't support true 10:1 @ 252MHz, so we use 5:1 DDR.
+    // This outputs 2 bits per clk_serial edge (DDR) = effective 10:1 at 126MHz.
     // ========================================================================
-    logic [9:0] shift_b, shift_g, shift_r, shift_clk;
-    logic [3:0] ser_cnt;
-    logic       ser_out_b, ser_out_g, ser_out_r, ser_out_clk;
+    
+    logic ser_out_b, ser_out_g, ser_out_r, ser_out_clk;
 
-    // Shift register serialiser (generic, works in simulation)
-    // For synthesis, replace with Gowin OSER10 instantiation
-    always_ff @(posedge clk_serial or negedge rst_n) begin
-        if (!rst_n) begin
-            shift_b   <= 10'b1101010100;
-            shift_g   <= 10'b1101010100;
-            shift_r   <= 10'b1101010100;
-            shift_clk <= 10'b0000011111;
-            ser_cnt   <= '0;
-        end else begin
-            if (ser_cnt == 9) begin
-                // Load new 10-bit word
-                shift_b   <= tmds_blue;
-                shift_g   <= tmds_green;
-                shift_r   <= tmds_red;
-                shift_clk <= tmds_clk;
-                ser_cnt   <= '0;
-            end else begin
-                // Shift out LSB first
-                shift_b   <= {1'b0, shift_b[9:1]};
-                shift_g   <= {1'b0, shift_g[9:1]};
-                shift_r   <= {1'b0, shift_r[9:1]};
-                shift_clk <= {1'b0, shift_clk[9:1]};
-                ser_cnt   <= ser_cnt + 1'b1;
-            end
-        end
-    end
+    // OSER10 for Blue channel
+    OSER10 oser_blue (
+        .D0(tmds_blue[0]),
+        .D1(tmds_blue[1]),
+        .D2(tmds_blue[2]),
+        .D3(tmds_blue[3]),
+        .D4(tmds_blue[4]),
+        .D5(tmds_blue[5]),
+        .D6(tmds_blue[6]),
+        .D7(tmds_blue[7]),
+        .D8(tmds_blue[8]),
+        .D9(tmds_blue[9]),
+        .PCLK(clk_pixel),
+        .FCLK(clk_serial),
+        .RESET(~rst_n),
+        .Q(ser_out_b)
+    );
 
-    assign ser_out_b   = shift_b[0];
-    assign ser_out_g   = shift_g[0];
-    assign ser_out_r   = shift_r[0];
-    assign ser_out_clk = shift_clk[0];
+    // OSER10 for Green channel
+    OSER10 oser_green (
+        .D0(tmds_green[0]),
+        .D1(tmds_green[1]),
+        .D2(tmds_green[2]),
+        .D3(tmds_green[3]),
+        .D4(tmds_green[4]),
+        .D5(tmds_green[5]),
+        .D6(tmds_green[6]),
+        .D7(tmds_green[7]),
+        .D8(tmds_green[8]),
+        .D9(tmds_green[9]),
+        .PCLK(clk_pixel),
+        .FCLK(clk_serial),
+        .RESET(~rst_n),
+        .Q(ser_out_g)
+    );
+
+    // OSER10 for Red channel
+    OSER10 oser_red (
+        .D0(tmds_red[0]),
+        .D1(tmds_red[1]),
+        .D2(tmds_red[2]),
+        .D3(tmds_red[3]),
+        .D4(tmds_red[4]),
+        .D5(tmds_red[5]),
+        .D6(tmds_red[6]),
+        .D7(tmds_red[7]),
+        .D8(tmds_red[8]),
+        .D9(tmds_red[9]),
+        .PCLK(clk_pixel),
+        .FCLK(clk_serial),
+        .RESET(~rst_n),
+        .Q(ser_out_r)
+    );
+
+    // OSER10 for Clock channel
+    OSER10 oser_clock (
+        .D0(tmds_clk[0]),
+        .D1(tmds_clk[1]),
+        .D2(tmds_clk[2]),
+        .D3(tmds_clk[3]),
+        .D4(tmds_clk[4]),
+        .D5(tmds_clk[5]),
+        .D6(tmds_clk[6]),
+        .D7(tmds_clk[7]),
+        .D8(tmds_clk[8]),
+        .D9(tmds_clk[9]),
+        .PCLK(clk_pixel),
+        .FCLK(clk_serial),
+        .RESET(~rst_n),
+        .Q(ser_out_clk)
+    );
 
     // ========================================================================
-    // Pseudo-differential Output
-    //
-    // Tang Nano 9K HDMI uses pseudo-differential LVCMOS (not true LVDS).
-    // We simply invert _p to generate _n. The HDMI connector has AC coupling.
+    // ELVDS_OBUF for Differential Output (Tang Nano 9K — Sipeed official)
+    // Instancias individuales para mapeo correcto de pines diferenciales
     // ========================================================================
-    assign tmds_clk_p  = ser_out_clk;
-    assign tmds_clk_n  = ~ser_out_clk;
-    assign tmds_d_p[0] = ser_out_b;
-    assign tmds_d_n[0] = ~ser_out_b;
-    assign tmds_d_p[1] = ser_out_g;
-    assign tmds_d_n[1] = ~ser_out_g;
-    assign tmds_d_p[2] = ser_out_r;
-    assign tmds_d_n[2] = ~ser_out_r;
+    ELVDS_OBUF tmds_buf_clk (.I(ser_out_clk), .O(tmds_clk_p), .OB(tmds_clk_n));
+    ELVDS_OBUF tmds_buf_d0  (.I(ser_out_b),   .O(tmds_d_p[0]), .OB(tmds_d_n[0]));
+    ELVDS_OBUF tmds_buf_d1  (.I(ser_out_g),   .O(tmds_d_p[1]), .OB(tmds_d_n[1]));
+    ELVDS_OBUF tmds_buf_d2  (.I(ser_out_r),   .O(tmds_d_p[2]), .OB(tmds_d_n[2]));
 
 endmodule : hdmi_tx
