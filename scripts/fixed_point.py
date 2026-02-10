@@ -243,18 +243,21 @@ def export_verilog_include(
         f.write(f"// DO NOT EDIT -- regenerate with scripts/golden_model.py\n\n")
 
         f.write(f"localparam integer NUM_{array_name} = {n};\n\n")
-        f.write(f"function automatic signed [{w-1}:0] {func_name}(input int idx);\n")
+        # Verilog-2001 compatible: no 'automatic', use 'integer' instead of 'int'
+        f.write(f"function signed [{w-1}:0] {func_name};\n")
+        f.write(f"    input integer idx;\n")
         f.write(f"    case (idx)\n")
 
         for i, v in enumerate(data):
             tc = to_twos_complement(int(v), w)
             # Show both hex and decimal for debugging
+            # Use function name assignment (Verilog-2001 compatible) instead of return (SV only)
             f.write(
-                f"        {i:2d}: return {w}'sh{tc:0{(w+3)//4}X};"
+                f"        {i:2d}: {func_name} = {w}'sh{tc:0{(w+3)//4}X};"
                 f"  // {int(v):+6d}  ({fixed_to_float(v, fmt):+.6f})\n"
             )
 
-        f.write(f"        default: return {w}'sh000;\n")
+        f.write(f"        default: {func_name} = {w}'sh000;\n")
         f.write(f"    endcase\n")
         f.write(f"endfunction\n")
 

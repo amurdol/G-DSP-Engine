@@ -327,4 +327,26 @@ module Gowin_CLKDIV (
     assign clkout = resetn ? clk_pix_sim : 1'b0;
 endmodule : Gowin_CLKDIV
 
+// OSER10: 10:1 Serialiser (simulation stub — just outputs LSB)
+module OSER10 (
+    input  logic D0, D1, D2, D3, D4, D5, D6, D7, D8, D9,
+    input  logic PCLK,
+    input  logic FCLK,
+    input  logic RESET,
+    output logic Q
+);
+    // Simulation: just output D0 (LSB) for basic functionality check
+    assign Q = D0;
+endmodule
+
+// ELVDS_OBUF: LVDS output buffer (simulation stub — passthrough)
+module ELVDS_OBUF (
+    input  logic I,
+    output logic O,
+    output logic OB
+);
+    assign O  = I;
+    assign OB = ~I;
+endmodule
+
 `endif // SIMULATION
