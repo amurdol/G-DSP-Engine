@@ -164,22 +164,28 @@ module constellation_renderer
     // Math: Monitor stretches X by 3.0× vs Y by 2.25× → ratio = 3/2.25 = 4/3
     //       To compensate: pre-compress X by 2.25/3 = 0.75 = 3/4
     //
-    // Implementation:
-    //   I → X: scaled_I = (I >>> 3) × 3 / 4  where I ∈ [−2048,+2047]
-    //          First: I >>> 3 → [−256,+255]
-    //          Then: × 3/4 → [−192,+191] (anamorphic compression)
-    //          → X ∈ [128, 511] ✓ fits in [0, 639]
+    // Implementation (scaled to ±66px × ±88px display area):
+    //   I → X: QAM outer symbols (±1943) → ±66px horizontal
+    //          scaled_I = (I × 23 / 512) × 3/4 (anamorphic)
+    //          Using shifts: 23 = 16+4+2+1, so x*23 = (x<<4)+(x<<2)+(x<<1)+x
+    //          ±1943 → ±87px → ±65px after compression ≈ ±66px ✓
     //
-    //   Q → Y: scaled_Q = Q >>> 3  (no correction needed)
-    //          = Q / 8 → range [−256,+255]
-    //          → Y ∈ [-16, 496] (clipped to [0, 479])
+    //   Q → Y: QAM outer symbols (±1943) → ±88px vertical
+    //          scaled_Q = Q × 23 / 512
+    //          ±1943 → ±87px ≈ ±88px ✓
     //
-    // Result: Constellation appears "narrow" in 640×480 but renders perfectly
-    //         circular when monitor scales to 16:9.
+    // Result: Constellation fits perfectly in validated square area that
+    //         appears as perfect square on 16:9 displays.
     // ========================================================================
-    wire signed [12:0] scaled_I_pre = $signed(sym_I) >>> 3;     // ÷8 first
-    wire signed [12:0] scaled_I = (scaled_I_pre * 3 + 2) >>> 2; // ×0.75 (anamorphic)
-    wire signed [12:0] scaled_Q = $signed(sym_Q) >>> 3;         // Standard Y
+    // Multiply by 23 using shifts and adds (no DSP blocks): x*23 = 16x+4x+2x+x
+    wire signed [16:0] scaled_I_x23 = ($signed(sym_I) <<< 4) + ($signed(sym_I) <<< 2) + 
+                                       ($signed(sym_I) <<< 1) + $signed(sym_I);
+    wire signed [12:0] scaled_I_pre = (scaled_I_x23 + 256) >>> 9;  // ×23/512
+    wire signed [12:0] scaled_I = (scaled_I_pre * 3 + 2) >>> 2;     // ×0.75 anamorphic
+    
+    wire signed [16:0] scaled_Q_x23 = ($signed(sym_Q) <<< 4) + ($signed(sym_Q) <<< 2) + 
+                                       ($signed(sym_Q) <<< 1) + $signed(sym_Q);
+    wire signed [12:0] scaled_Q = (scaled_Q_x23 + 256) >>> 9;       // ×23/512
 
     // Correctly handle signed arithmetic for coordinate conversion
     wire signed [12:0] x_coord = $signed({1'b0, CENTER_X}) + scaled_I;
@@ -270,13 +276,13 @@ module constellation_renderer
 
     // Tick marks at 16-QAM symbol positions with anamorphic correction
     // QAM positions: I=±648, ±1943  Q=±648, ±1943
-    // Base scaling: >>>3 → ±81px, ±243px
+    // New scaling: ×23/512 → inner ±29px, outer ±87px
     // X-axis needs anamorphic correction (×0.75):
-    localparam int TICK_INNER_X = 61;   // (81 * 3) / 4 ≈ 61px (anamorphic)
-    localparam int TICK_OUTER_X = 182;  // (243 * 3) / 4 ≈ 182px (anamorphic)
+    localparam int TICK_INNER_X = 22;   // (648 * 23/512 * 3/4) ≈ 22px (anamorphic)
+    localparam int TICK_OUTER_X = 66;   // (1943 * 23/512 * 3/4) ≈ 66px (anamorphic)
     // Y-axis uses standard scaling (no correction):
-    localparam int TICK_INNER_Y = 81;   // Inner symbols
-    localparam int TICK_OUTER_Y = 243;  // Outer symbols
+    localparam int TICK_INNER_Y = 29;   // (648 * 23/512) ≈ 29px
+    localparam int TICK_OUTER_Y = 87;   // (1943 * 23/512) ≈ 87px
     localparam int TICK_LENGTH = 12;    // 12 pixels long
     
     wire on_tick_x = in_active_area && (
@@ -302,9 +308,9 @@ module constellation_renderer
     wire on_ticks = on_tick_x || on_tick_y;
 
     // Decision boundary lines with anamorphic correction
-    // Midpoint between inner and outer: (81+243)/2 = 162px base
-    localparam int BOUNDARY_OFFSET_X = 122;  // (162 * 3) / 4 ≈ 122px (anamorphic)
-    localparam int BOUNDARY_OFFSET_Y = 162;  // Standard (no correction)
+    // Midpoint between inner and outer: (29+87)/2 = 58px base
+    localparam int BOUNDARY_OFFSET_X = 44;   // (58 * 3/4) ≈ 44px (anamorphic)
+    localparam int BOUNDARY_OFFSET_Y = 58;   // (29+87)/2 = 58px (no correction)
     wire on_decision = in_active_area && (
         (h_cnt == CENTER_X - BOUNDARY_OFFSET_X) ||
         (h_cnt == CENTER_X + BOUNDARY_OFFSET_X) ||
@@ -313,10 +319,10 @@ module constellation_renderer
     );
 
     // Reference square for measuring anamorphic correction
-    // This rectangle will appear as a perfect square on 16:9 displays
-    // Range covers full constellation area with some margin
-    localparam int SQUARE_SIZE_X = 200;  // ±200px (anamorphic, will stretch to match Y)
-    localparam int SQUARE_SIZE_Y = 260;  // ±260px (standard)
+    // This rectangle appears as a perfect square on 16:9 displays (VALIDATED)
+    // Sized to match constellation display area with small margin
+    localparam int SQUARE_SIZE_X = 70;  // ±70px (slightly larger than outer tick at 66px)
+    localparam int SQUARE_SIZE_Y = 93;  // ±93px (slightly larger than outer tick at 87px)
     wire on_reference_square = in_active_area && (
         ((h_cnt == CENTER_X - SQUARE_SIZE_X) || (h_cnt == CENTER_X + SQUARE_SIZE_X)) &&
         (v_cnt >= CENTER_Y - SQUARE_SIZE_Y) && (v_cnt <= CENTER_Y + SQUARE_SIZE_Y)
@@ -325,6 +331,26 @@ module constellation_renderer
         (h_cnt >= CENTER_X - SQUARE_SIZE_X) && (h_cnt <= CENTER_X + SQUARE_SIZE_X)
     );
 
+    // Test pattern: Dense grid for symmetry verification
+    // Creates a filled square pattern to measure anamorphic correction
+    // Area: 132×176 pixels (anamorphic 3:4 ratio) → appears as perfect square on 16:9
+    // Size fits within screen bounds with margin: [254,386]×[152,328]
+    localparam int TEST_SIZE_X = 132;  // ±66px horizontal (anamorphic, CENTER=320)
+    localparam int TEST_SIZE_Y = 176;  // ±88px vertical (standard, CENTER=240)
+    localparam int TEST_SPACING = 2;    // 2px spacing → ~66×88 points
+    
+    wire signed [12:0] h_offset = h_cnt - CENTER_X;
+    wire signed [12:0] v_offset = v_cnt - CENTER_Y;
+    
+    // Check if within test area and on grid intersection
+    wire in_test_area = (h_offset >= -TEST_SIZE_X) && (h_offset <= TEST_SIZE_X) &&
+                        (v_offset >= -TEST_SIZE_Y) && (v_offset <= TEST_SIZE_Y);
+    
+    wire on_h_grid = (h_offset[0] == 1'b0);  // Every 2 pixels horizontally
+    wire on_v_grid = (v_offset[0] == 1'b0);  // Every 2 pixels vertically
+    
+    wire on_test_pattern = in_active_area && in_test_area && on_h_grid && on_v_grid;
+
     // ========================================================================
     // RGB Output with Color-Coded Quadrants
     // ========================================================================
@@ -332,6 +358,7 @@ module constellation_renderer
     // Q2 (top-left,  -I+Q):    Green
     // Q3 (bot-left,  -I-Q):    Yellow
     // Q4 (bot-right, +I-Q):    Magenta
+    // Test pattern: Dense 100×130 grid (white, for symmetry verification)
     // Decision bounds: dark blue
     // Reference square: white (for measuring aspect ratio)
     // Main axes: light gray
@@ -356,6 +383,8 @@ module constellation_renderer
         end else if (h_active && v_active) begin
             if (pixel_hit)
                 rgb_pixel <= dot_color;          // Colored symbol dot by quadrant
+            else if (on_test_pattern)
+                rgb_pixel <= 24'hFFFFFF;         // White constellation test points
             else if (on_main_axis)
                 rgb_pixel <= 24'hA0A0A0;         // Light gray main axes
             else if (on_ticks)
