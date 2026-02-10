@@ -12,11 +12,11 @@
 // Architecture:
 //   1. TMDS 8b/10b Encoder (×3 for R, G, B channels)
 //   2. 10:1 Serialiser using Gowin OSER10 primitive (×4 for D0, D1, D2, CLK)
-//   3. LVDS Output Buffers using TLVDS_OBUF primitive
+//   3. LVDS Output Buffers using ELVDS_OBUF primitive
 //
 // Clocking:
 //   clk_pixel  = 25.2 MHz (input, VGA 640×480@60Hz)
-//   clk_serial = 252 MHz (10× pixel clock, from PLL)
+//   clk_serial = 126 MHz (5× pixel clock, from PLL)
 //
 // TMDS channels:
 //   D0 (Blue)  = B[7:0], hsync, vsync (during blanking)
@@ -26,14 +26,14 @@
 // ============================================================================
 
 module hdmi_tx (
-    input  logic        clk_pixel,      // 25.2 MHz pixel clock (VGA)
+    input  logic        clk_pixel,      // 25.2 MHz pixel clock (VGA 480p)
     input  logic        clk_serial,     // 126 MHz serial clock (5×)
     input  logic        rst_n,
 
     // Video input
     input  logic [23:0] rgb,            // R[23:16] G[15:8] B[7:0]
-    input  logic        hsync,          // H-sync (active-low for VGA 480p)
-    input  logic        vsync,          // V-sync (active-low for VGA 480p)
+    input  logic        hsync,          // H-sync (active-high for 720p)
+    input  logic        vsync,          // V-sync (active-high for 720p)
     input  logic        de,             // Data enable (active video)
 
     // TMDS outputs (differential pairs via ELVDS_OBUF)

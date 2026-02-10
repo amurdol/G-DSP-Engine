@@ -24,7 +24,7 @@ CLKDIV clkdiv_inst (
     .CALIB(gw_gnd)
 );
 
-defparam clkdiv_inst.DIV_MODE = "5";  // 126/5 = 25.2 MHz pixel clock (ejemplo Sipeed)
+defparam clkdiv_inst.DIV_MODE = "5";  // 126/5 = 25.2 MHz pixel clock (480p VGA)
 defparam clkdiv_inst.GSREN = "false";
 
 endmodule //Gowin_CLKDIV

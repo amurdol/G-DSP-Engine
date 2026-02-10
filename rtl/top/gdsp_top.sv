@@ -31,6 +31,7 @@
 //   │               ┌──────────────────────────────────────┼──────────┐   │
 //   │               │ clk_pixel domain                     ↓          │   │
 //   │               │  constellation_renderer → hdmi_tx → TMDS       │   │
+//   │               │  (640×480 @ 60 Hz VGA)                          │   │
 //   │               └────────────────────────────────────────────────┘   │
 //   └─────────────────────────────────────────────────────────────────────┘
 //
@@ -55,7 +56,7 @@ module gdsp_top
 );
 
     // ========================================================================
-    // Clock Generation
+    // Clock Generation for VGA 480p HDMI
     //
     // Architecture:
     //   clk_27m (27 MHz)
@@ -64,14 +65,16 @@ module gdsp_top
     //       │
     //       ▼
     //   ┌─────────┐   clk_serial (126 MHz)
-    //   │Gowin_rPLL├────────────────────────► to HDMI serialiser
+    //   │Gowin_rPLL├────────────────────────► to HDMI serialiser (5× pixel)
     //   │         │         │
     //   └─────────┘         ▼
     //               ┌────────────┐
     //               │Gowin_CLKDIV│  ÷5
-    //               │            ├──────────► clk_pixel (25.2 MHz, VGA)
+    //               │            ├──────────► clk_pixel (25.2 MHz, VGA 480p)
     //               └────────────┘
     //
+    // PLL Config: VCO = 27×14/3 = 126 MHz, CLKOUT = 126 MHz
+    //             (IDIV=2 [÷3], FBDIV=13 [×14], ODIV=4 [÷4])
     // ========================================================================
     logic clk_dsp;
     logic clk_pixel;
@@ -81,10 +84,12 @@ module gdsp_top
     // DSP clock = input clock directly (27 MHz)
     assign clk_dsp = clk_27m;
 
-    // rPLL: 27 MHz → 126 MHz (clk_serial for VGA 480p TMDS DDR)
+    // rPLL: 27 MHz → 126 MHz (clk_serial for VGA 480p HDMI TMDS)
+    // VCO = 27×14/3 = 126 MHz, ODIV divides by 4
+    // Hardware: IDIV=2 (÷3), FBDIV=13 (×14), ODIV=4 (÷4)
     Gowin_rPLL u_pll (
         .clkin  (clk_27m),
-        .clkout (clk_serial),    // 126 MHz
+        .clkout (clk_serial),    // 126 MHz (5× pixel clock)
         .lock   (pll_lock)
     );
 
@@ -273,12 +278,17 @@ module gdsp_top
             heartbeat_cnt <= heartbeat_cnt + 1'b1;
     end
 
-    assign led[0] = ~heartbeat_cnt[24];   // Heartbeat (debe parpadear siempre)
-    assign led[1] = ~pll_lock;            // PLL lock (diagnóstico crítico)
-    assign led[2] = ~demod_lock;          // Costas lock
-    assign led[3] = ~sys_rst_n;           // System running indicator
-    assign led[4] = ~noise_sel[0];        // Noise level bit 0
-    assign led[5] = ~noise_sel[1];        // Noise level bit 1
+    // LED mapping (active-low, per design spec):
+    // LED[0]: reset status (LOW when reset active)
+    // LED[1]: demodulator lock (Costas loop phase lock)
+    // LED[2-3]: noise magnitude low bits
+    // LED[4-5]: noise magnitude high bits + heartbeat
+    assign led[0] = ~sys_rst_n;           // Reset indicator (active-low)
+    assign led[1] = ~demod_lock;          // Demod lock status (vital!)
+    assign led[2] = ~noise_sel[0];        // Noise level bit 0
+    assign led[3] = ~noise_sel[1];        // Noise level bit 1
+    assign led[4] = ~pll_lock;            // PLL lock diagnostic
+    assign led[5] = ~heartbeat_cnt[24];   // Heartbeat (must always blink)
 
 endmodule : gdsp_top
 
@@ -296,12 +306,12 @@ module Gowin_rPLL (
     output logic clkout,
     output logic lock
 );
-    // Simulation model: generate 371.25 MHz from any input
+    // Simulation model: generate 126 MHz from 27 MHz input
     assign lock = 1'b1;
 
-    // Generate clk_serial (371.25 MHz) — period 2.694 ns
+    // Generate clk_serial (126 MHz) — period 7.936 ns
     logic clk_ser_sim = 0;
-    always #1.347 clk_ser_sim = ~clk_ser_sim;
+    always #3.968 clk_ser_sim = ~clk_ser_sim;
     assign clkout = clk_ser_sim;
 endmodule : Gowin_rPLL
 
@@ -311,9 +321,9 @@ module Gowin_CLKDIV (
     output logic clkout
 );
     // Simulation model: divide input by 5
-    // 371.25 MHz / 5 = 74.25 MHz — period 13.468 ns
+    // 126 MHz / 5 = 25.2 MHz — period 39.68 ns
     logic clk_pix_sim = 0;
-    always #6.734 clk_pix_sim = ~clk_pix_sim;
+    always #19.84 clk_pix_sim = ~clk_pix_sim;
     assign clkout = resetn ? clk_pix_sim : 1'b0;
 endmodule : Gowin_CLKDIV
 

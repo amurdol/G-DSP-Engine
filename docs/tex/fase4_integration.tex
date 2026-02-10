@@ -293,6 +293,85 @@ referencia (gris oscuro):
           $256 \times 256$.
 \end{itemize}
 
+\subsection{Correcci\'{o}n Anam\'{o}rfica para Pantallas 16:9}
+\label{subsec:anamorphic}
+
+\subsubsection{Problema: Distorsi\'{o}n por Escalado de Monitores}
+
+Los monitores modernos operan nativamente en formato 16:9 (1920$\times$1080,
+2560$\times$1440, etc.). Cuando se les alimenta una se\~{n}al VGA 
+640$\times$480 (formato 4:3), el escalador autom\'{a}tico del monitor
+estira la imagen para llenar toda la pantalla, aplicando factores de escala
+diferentes en cada eje:
+
+\begin{align}
+    S_x &= \frac{1920}{640} = 3.00 \quad \text{(escalado horizontal)} \\
+    S_y &= \frac{1080}{480} = 2.25 \quad \text{(escalado vertical)}
+\end{align}
+
+Esta diferencia ($S_x / S_y = 1.333 = 4/3$) distorsiona cualquier figura
+circular (como una constelaci\'{o}n QAM te\'{o}rica) en un elipsoide
+estirado horizontalmente.
+
+\subsubsection{Soluci\'{o}n: Pre-compresi\'{o}n Computacional}
+
+En lugar de intentar cambiar la resoluci\'{o}n de salida (lo cual estar\'{\i}a
+limitado por las restricciones del PLL de la FPGA Gowin GW1NR-9, donde
+ciertos divisores ODIV no est\'{a}n disponibles), aplicamos una
+\textbf{correcci\'{o}n anam\'{o}rfica} directamente en el DSP de renderizado.
+
+La t\'{e}cnica consiste en pre-comprimir el eje $X$ por un factor
+$\alpha = S_y / S_x$ \textbf{antes} de dibujar la imagen:
+
+\begin{equation}
+    \alpha = \frac{S_y}{S_x} = \frac{2.25}{3.00} = 0.75 = \frac{3}{4}
+\end{equation}
+
+As\'{\i}, cuando el monitor posteriormente estira la imagen por
+$S_x / S_y = 1.333$, la compensaci\'{o}n se cancela exactamente:
+
+\begin{equation}
+    \alpha \times \frac{S_x}{S_y} = 0.75 \times 1.333 = 1.00
+    \quad \Rightarrow \text{C\'{\i}rculos perfectos}
+\end{equation}
+
+\subsubsection{Implementaci\'{o}n en Hardware}
+
+En \texttt{constellation\_renderer.sv}, las coordenadas I/Q se convierten
+a p\'{\i}xeles aplicando escalas diferentes:
+
+\begin{align}
+    x_{\text{pixel}} &= 320 + \left\lfloor \frac{I \times 3}{32} \right\rfloor
+                      = 320 + \left( (I \times 3) \gg 5 \right) 
+                      \label{eq:anamorphic_x} \\
+    y_{\text{pixel}} &= 240 - \left\lfloor \frac{Q}{8} \right\rfloor
+                      = 240 - (Q \gg 3)
+                      \label{eq:anamorphic_y}
+\end{align}
+
+Observaciones:
+
+\begin{itemize}
+    \item La ecuaci\'{o}n (\ref{eq:anamorphic_x}) implementa un factor
+          $3/32 \approx 0.094$ para el eje $X$. El factor base de 
+          $1/8 = 0.125$ se multiplica por $3/4 = 0.75$ (anam\'{o}rfico)
+          resultando en $0.125 \times 0.75 = 0.09375 \approx 3/32$.
+    
+    \item La ecuaci\'{o}n (\ref{eq:anamorphic_y}) usa el factor est\'{a}ndar
+          $1/8$ sin correcci\'{o}n.
+    
+    \item El coste es 1 multiplicador de 13 bits y 1 shifter adicional
+          (despreciable en recursos).
+    
+    \item La constelaci\'{o}n aparece ``comprimida'' en el framebuffer
+          640$\times$480, pero se visualiza \textbf{perfectamente circular}
+          en el monitor 16:9 tras el escalado autom\'{a}tico.
+\end{itemize}
+
+Esta t\'{e}cnica es com\'{u}n en producci\'{o}n cinematogr\'{a}fica
+(formato anam\'{o}rfico CinemaScope) y se adapta aqu\'{\i} al dominio
+digital sin coste adicional de hardware significativo.
+
 
 % ============================================================================
 \section{Transmisor HDMI (TMDS)}
@@ -438,11 +517,18 @@ temporales para el an\'{a}lisis de \textit{timing closure}:
 
 \begin{lstlisting}[language={}, caption={Extracto de timing.sdc.}]
 create_clock -name clk_27m -period 37.037 [get_ports {clk_27m}]
-create_clock -name clk_pixel -period 13.468 [get_pins {u_pll/clkout1}]
-create_clock -name clk_serial -period 2.694 [get_pins {u_pll/clkout2}]
+create_clock -name clk_pixel -period 39.683 [get_pins {u_clkdiv/clkout}]
+create_clock -name clk_serial -period 7.937 [get_pins {u_pll/clkout}]
 set_clock_groups -asynchronous -group {clk_27m} -group {clk_pixel clk_serial}
 set_false_path -from [get_ports {rst_n btn_user}]
 \end{lstlisting}
+
+Los per\'{\i}odos corresponden a:
+\begin{itemize}
+    \item \texttt{clk\_27m}: \SI{27}{MHz} $\to$ \SI{37,037}{ns}
+    \item \texttt{clk\_pixel}: \SI{25,2}{MHz} $\to$ \SI{39,683}{ns}
+    \item \texttt{clk\_serial}: \SI{126}{MHz} $\to$ \SI{7,937}{ns}
+\end{itemize}
 
 
 % ============================================================================
@@ -500,26 +586,76 @@ seg\'{u}n opciones de optimizaci\'{o}n del sintetizador.
 
 
 % ============================================================================
-\section{Decisi\'{o}n de Dise\~{n}o: Optimizaci\'{o}n de Recursos}
+\section{Decisi\'{o}n de Dise\~{n}o: Optimizaci\'{o}n de Recursos y Selecci\'{o}n de Resoluci\'{o}n}
 \label{sec:design_tradeoff}
 % ============================================================================
 
-Durante la integraci\'{o}n, se identific\'{o} que la implementaci\'{o}n
-original a \SI{720}{p} con el filtro RRC de 33~taps exced\'{\i}a la
-capacidad de LUTs disponibles en la FPGA (8640 elementos). Tras aplicar
-inicialmente la reducci\'{o}n a \SI{480}{p}, el dise\~{n}o a\'{u}n
-superaba los recursos (13,117 elementos). Se opt\'{o} por aplicar
-ambas estrategias de optimizaci\'{o}n:
+\subsection{Restricciones del PLL: Por Qu\'{e} VGA 480p en Lugar de 720p}
+
+Inicialmente se consider\'{o} implementar HD 720p (1280$\times$720@60Hz) para
+aprovechar mejor el aspecto 16:9 de los monitores modernos. Sin embargo, la
+arquitectura del PLL Gowin rPLL en la familia GW1NR-9 impone
+\textbf{restricciones f\'{\i}sicas} en los divisores:
+
+\begin{itemize}
+    \item \textbf{Par\'{a}metro ODIV\_SEL}: Solo acepta los valores 
+          $\{2, 4, 8, 16, 32, 64, 80, 128\}$. \textit{No admite 1}.
+    \item \textbf{Par\'{a}metro CLKDIV}: Solo acepta los modos
+          $\{2, 2.5, 3, 3.5, 4, 5, 8\}$. \textit{No admite 10}.
+\end{itemize}
+
+Para generar el pixel clock de 720p (\SI{74,25}{MHz}) desde una entrada
+de \SI{27}{MHz}, se requerir\'{\i}a:
+
+\begin{align}
+    f_{\text{target}} &= 27 \times \frac{55}{2} = \SI{742,5}{MHz}
+                        \quad \text{(VCO)} \\
+    f_{\text{pixel}}  &= \frac{742,5}{10} = \SI{74,25}{MHz}
+                        \quad \text{(requiere CLKDIV=10, \textbf{NO soportado})}
+\end{align}
+
+Rutas alternativas (como usar ODIV=1 con CLKDIV=5) tambi\'{e}n fallan
+porque ODIV\_SEL=1 es inv\'{a}lido. El sintetizador Gowin reemplaza
+autom\'{a}ticamente par\'{a}metros inv\'{a}lidos con valores por defecto
+(ODIV=8), generando frecuencias incorrectas que causan colapso del sistema.
+
+\textbf{Soluci\'{o}n adoptada}: VGA 480p (\SI{25,2}{MHz} pixel clock) es
+perfectamente alcanzable:
+
+\begin{align}
+    f_{\text{VCO}} &= 27 \times \frac{14}{3} = \SI{126}{MHz} \\
+    f_{\text{serial}} &= \frac{126}{1} = \SI{126}{MHz} 
+                        \quad \text{(ODIV=4 v\'{a}lido)} \\
+    f_{\text{pixel}} &= \frac{126}{5} = \SI{25,2}{MHz}
+                       \quad \text{(CLKDIV=5 v\'{a}lido)}
+\end{align}
+
+Esta configuraci\'{o}n usa par\'{a}metros soportados (IDIV=2, FBDIV=13, ODIV=4,
+CLKDIV=5) y es estable en hardware real.
+
+\subsection{Compensaci\'{o}n: T\'{e}cnica Anam\'{o}rfica}
+
+Dado que 480p (4:3) se distorsiona en monitores 16:9, se implement\'{o} una
+\textbf{correcci\'{o}n anam\'{o}rfica} en el renderizador (ver
+\S\ref{subsec:anamorphic}). Esta t\'{e}cnica pre-comprime el eje horizontal
+por factor 0.75, haciendo que la constelaci\'{o}n se muestre perfectamente
+circular tras el escalado autom\'{a}tico del monitor, \textbf{sin necesidad
+de cambiar la resoluci\'{o}n}.
+
+\subsection{Optimizaci\'{o}n del Filtro RRC}
+
+Adicionalmente, el filtro RRC se redujo de 33 a 17~taps para cumplir con el
+presupuesto de LUTs disponibles (8640 en GW1NR-9):
 
 \begin{enumerate}
     \item \textbf{Reducci\'{o}n de resoluci\'{o}n de video}: De \SI{720}{p}
           a VGA \SI{480}{p}, reduciendo la frecuencia serial de
-          \SI{371,25}{MHz} a \SI{126}{MHz}.
+          \SI{742,5}{MHz} (inaccesible) a \SI{126}{MHz} (estable).
     \item \textbf{Reducci\'{o}n del filtro RRC}: De 33 a 17~taps,
           manteniendo la simetr\'{\i}a y el roll-off $\alpha = 0.25$.
 \end{enumerate}
 
-\subsection{Justificaci\'{o}n del Filtro de 17 Taps}
+\subsubsection{Justificaci\'{o}n del Filtro de 17 Taps}
 
 El filtro RRC de 17~taps representa un compromiso razonable:
 

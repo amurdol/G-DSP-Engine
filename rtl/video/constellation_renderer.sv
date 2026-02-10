@@ -6,20 +6,15 @@
 // License: MIT
 // ============================================================================
 //
-// Renders the IQ constellation onto a 480p60 (VGA 640×480) video stream
-// without external memory.  Each received symbol paints a 2×2 pixel dot at
-// the corresponding (x,y) coordinate within a 256×256 plot area centered on
-// the 640×480 frame.
+// Renders the IQ constellation onto a 480p60 (VGA 640×480) video stream.
+// Each received symbol paints a 4×4 pixel dot.
 //
-// Mapping (Q1.11 → pixel):
-//   px_x = 320 + (I >>> 4)    ← range [−2048..+2047] → [192..447] center
-//   px_y = 240 − (Q >>> 4)    ← inverted Y axis (positive Q = up)
+// Mapping (Q1.11 → pixel coordinates):
+//   px_x = 320 + (I >>> 3)    ← range [−2048..+2047] → [64..576]
+//   px_y = 240 − (Q >>> 3)    ← range [−2048..+2047] → [-16..496] clipped
 //
-// The 2×2 dot is achieved by buffering the pixel coordinate and checking
-// if the current scan position falls within ±1 of the buffered point.
-//
-// No framebuffer — symbols decay instantly (scan-line racing).  For a
-// persistent trace, enable PSRAM framebuffer in a later phase.
+// Scale >>>3 (divide by 8) for both axes maintains square constellation.
+// No framebuffer — symbols decay instantly (scan-line racing).
 // ============================================================================
 
 module constellation_renderer
@@ -59,22 +54,15 @@ module constellation_renderer
     localparam int V_BP      = 33;
     localparam int V_TOTAL   = V_ACTIVE + V_FP + V_SYNC + V_BP;  // 525
 
-    // Plot area: 256×256 pixel square, centered on screen
-    localparam int PLOT_SIZE   = 256;
-    localparam int PLOT_X_MIN  = (H_ACTIVE - PLOT_SIZE) / 2;  // 192
-    localparam int PLOT_X_MAX  = PLOT_X_MIN + PLOT_SIZE - 1;  // 447
-    localparam int PLOT_Y_MIN  = (V_ACTIVE - PLOT_SIZE) / 2;  // 112
-    localparam int PLOT_Y_MAX  = PLOT_Y_MIN + PLOT_SIZE - 1;  // 367
-
     // Plot center in pixel coordinates
-    localparam int CENTER_X    = H_ACTIVE / 2;  // 320
-    localparam int CENTER_Y    = V_ACTIVE / 2;  // 240
+    localparam int CENTER_X = H_ACTIVE / 2;  // 320
+    localparam int CENTER_Y = V_ACTIVE / 2;  // 240
 
     // ========================================================================
     // Horizontal and Vertical Counters
     // ========================================================================
-    logic [11:0] h_cnt;
-    logic [10:0] v_cnt;
+    logic [11:0] h_cnt;  // 0..799
+    logic [10:0] v_cnt;  // 0..524
 
     always_ff @(posedge clk_pixel or negedge rst_n) begin
         if (!rst_n) begin
@@ -167,18 +155,41 @@ module constellation_renderer
             vsync_d <= vsync;
     end
 
-    // Convert I/Q to pixel coords (clamped to plot area)
-    // I maps to X: center_x + (I >>> 4) where I range [−2048,+2047] → [−128,+127]
-    // Q maps to Y: center_y − (Q >>> 4) (inverted for screen coords)
-    wire signed [12:0] scaled_I = $signed(sym_I) >>> 4;  // [−128,+127]
-    wire signed [12:0] scaled_Q = $signed(sym_Q) >>> 4;
+    // ========================================================================
+    // ANAMORPHIC CORRECTION for 480p on 16:9 Displays
+    // ========================================================================
+    // Problem: 640×480 (4:3) → stretched to 1920×1080 (16:9) → rectangular
+    // Solution: Apply 0.75× compression to X-axis before rendering
+    //
+    // Math: Monitor stretches X by 3.0× vs Y by 2.25× → ratio = 3/2.25 = 4/3
+    //       To compensate: pre-compress X by 2.25/3 = 0.75 = 3/4
+    //
+    // Implementation:
+    //   I → X: scaled_I = (I × 3) >>> 5  where I ∈ [−2048,+2047]
+    //          = I × 3/32 ≈ I × 0.09375 → range [−192,+191]
+    //          → X ∈ [128, 511] ✓ fits in [0, 639]
+    //
+    //   Q → Y: scaled_Q = Q >>> 3  (no correction needed)
+    //          = Q / 8 → range [−256,+255]
+    //          → Y ∈ [-16, 496] (clipped to [0, 479])
+    //
+    // Result: Constellation appears "narrow" in 640×480 but renders perfectly
+    //         circular when monitor scales to 16:9.
+    // ========================================================================
+    wire signed [12:0] scaled_I = ($signed(sym_I) * 3) >>> 5;  // Anamorphic X: ×0.75
+    wire signed [12:0] scaled_Q = $signed(sym_Q) >>> 3;        // Standard Y
 
     // Correctly handle signed arithmetic for coordinate conversion
     wire signed [12:0] x_coord = $signed({1'b0, CENTER_X}) + scaled_I;
     wire signed [12:0] y_coord = $signed({1'b0, CENTER_Y}) - scaled_Q;
     
-    wire [11:0] new_x = x_coord[11:0];
-    wire [10:0] new_y = y_coord[10:0];
+    // Clip to screen boundaries [0, 639] × [0, 479]
+    wire [11:0] new_x = (x_coord < 0) ? 12'd0 : 
+                        (x_coord >= H_ACTIVE) ? (H_ACTIVE - 1) : 
+                        x_coord[11:0];
+    wire [10:0] new_y = (y_coord < 0) ? 11'd0 : 
+                        (y_coord >= V_ACTIVE) ? (V_ACTIVE - 1) : 
+                        y_coord[10:0];
 
     integer i;
 
@@ -237,33 +248,31 @@ module constellation_renderer
     end
 
     // ========================================================================
-    // Background Grid (optional visual aid)
+    // Background Grid (480p full screen with improved visibility)
     //
     // Draw enhanced grid with thick center axes, tick marks at QAM symbol
     // positions, and decision boundaries.
     // ========================================================================
-    wire in_plot = (h_cnt >= PLOT_X_MIN) && (h_cnt <= PLOT_X_MAX) &&
-                   (v_cnt >= PLOT_Y_MIN) && (v_cnt <= PLOT_Y_MAX);
+    wire in_active_area = (h_cnt < H_ACTIVE) && (v_cnt < V_ACTIVE);
 
     // Center axes (thicker for visibility: 3 pixels wide)
-    wire on_axis_x = (h_cnt >= CENTER_X - 1) && (h_cnt <= CENTER_X + 1);
-    wire on_axis_y = (v_cnt >= CENTER_Y - 1) && (v_cnt <= CENTER_Y + 1);
-    wire on_main_axis = in_plot && (on_axis_x || on_axis_y);
+    wire on_axis_x = (h_cnt >= CENTER_X - 1) && (h_cnt <= CENTER_X + 1) && (v_cnt < V_ACTIVE);
+    wire on_axis_y = (v_cnt >= CENTER_Y - 1) && (v_cnt <= CENTER_Y + 1) && (h_cnt < H_ACTIVE);
+    wire on_main_axis = in_active_area && (on_axis_x || on_axis_y);
 
-    // Plot boundary box
-    wire on_border = in_plot && (
-        (h_cnt == PLOT_X_MIN) || (h_cnt == PLOT_X_MAX) ||
-        (v_cnt == PLOT_Y_MIN) || (v_cnt == PLOT_Y_MAX)
+    // Screen border (1 pixel)
+    wire on_border = in_active_area && (
+        (h_cnt == 0) || (h_cnt == H_ACTIVE - 1) ||
+        (v_cnt == 0) || (v_cnt == V_ACTIVE - 1)
     );
 
-    // Tick marks at 16-QAM symbol positions
-    // Inner levels: ±648 >> 4 = ±40 pixels
-    // Outer levels: ±1943 >> 4 = ±121 pixels
-    localparam int TICK_INNER = 40;
-    localparam int TICK_OUTER = 121;
-    localparam int TICK_LENGTH = 8;  // 8 pixels long
+    // Tick marks at 16-QAM symbol positions (>>>3 scaling)
+    // ±648>>>3=81px, ±1943>>>3=243px
+    localparam int TICK_INNER = 81;   // Inner symbols
+    localparam int TICK_OUTER = 243;  // Outer symbols
+    localparam int TICK_LENGTH = 12;  // 12 pixels long
     
-    wire on_tick_x = in_plot && (
+    wire on_tick_x = in_active_area && (
         // Horizontal ticks on Y-axis (marking I values)
         ((v_cnt >= CENTER_Y - TICK_LENGTH) && (v_cnt <= CENTER_Y + TICK_LENGTH)) && (
             (h_cnt == CENTER_X - TICK_OUTER) ||
@@ -273,7 +282,7 @@ module constellation_renderer
         )
     );
     
-    wire on_tick_y = in_plot && (
+    wire on_tick_y = in_active_area && (
         // Vertical ticks on X-axis (marking Q values)
         ((h_cnt >= CENTER_X - TICK_LENGTH) && (h_cnt <= CENTER_X + TICK_LENGTH)) && (
             (v_cnt == CENTER_Y - TICK_OUTER) ||
@@ -285,9 +294,9 @@ module constellation_renderer
 
     wire on_ticks = on_tick_x || on_tick_y;
 
-    // Decision boundary lines (midpoint between inner and outer: ±81 pixels)
-    localparam int BOUNDARY_OFFSET = 81;  // (40 + 121) / 2 ≈ 81
-    wire on_decision = in_plot && (
+    // Decision boundary lines (midpoint between inner and outer: ±162 pixels)
+    localparam int BOUNDARY_OFFSET = 162;  // (81 + 243) / 2 ≈ 162
+    wire on_decision = in_active_area && (
         (h_cnt == CENTER_X - BOUNDARY_OFFSET) ||
         (h_cnt == CENTER_X + BOUNDARY_OFFSET) ||
         (v_cnt == CENTER_Y - BOUNDARY_OFFSET) ||
@@ -297,14 +306,14 @@ module constellation_renderer
     // ========================================================================
     // RGB Output with Color-Coded Quadrants
     // ========================================================================
-    // Q1 (top-right, +I+Q):    Cyan    (bright, easy to spot)
+    // Q1 (top-right, +I+Q):    Cyan
     // Q2 (top-left,  -I+Q):    Green
     // Q3 (bot-left,  -I-Q):    Yellow
     // Q4 (bot-right, +I-Q):    Magenta
     // Decision bounds: dark blue
-    // Main axes: white (thick, prominent)
-    // Ticks: light gray
-    // Border: medium gray
+    // Main axes: light gray
+    // Ticks: medium gray
+    // Border: dark gray
     // ========================================================================
     logic [23:0] dot_color;
     
@@ -325,17 +334,15 @@ module constellation_renderer
             if (pixel_hit)
                 rgb_pixel <= dot_color;          // Colored symbol dot by quadrant
             else if (on_main_axis)
-                rgb_pixel <= 24'h808080;         // White main axes (prominent)
+                rgb_pixel <= 24'hA0A0A0;         // Light gray main axes
             else if (on_ticks)
-                rgb_pixel <= 24'h606060;         // Light gray tick marks
+                rgb_pixel <= 24'h707070;         // Medium gray tick marks
             else if (on_decision)
-                rgb_pixel <= 24'h202060;         // Dark blue decision bounds
+                rgb_pixel <= 24'h303080;         // Dark blue decision bounds
             else if (on_border)
-                rgb_pixel <= 24'h404040;         // Medium gray border
-            else if (in_plot)
-                rgb_pixel <= 24'h000000;         // Black plot background
+                rgb_pixel <= 24'h505050;         // Dark gray border
             else
-                rgb_pixel <= 24'h000000;         // Black outside plot
+                rgb_pixel <= 24'h000000;         // Black background
         end else begin
             rgb_pixel <= 24'h000000;             // Blanking
         end
