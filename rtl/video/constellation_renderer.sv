@@ -165,8 +165,9 @@ module constellation_renderer
     //       To compensate: pre-compress X by 2.25/3 = 0.75 = 3/4
     //
     // Implementation:
-    //   I → X: scaled_I = (I × 3) >>> 5  where I ∈ [−2048,+2047]
-    //          = I × 3/32 ≈ I × 0.09375 → range [−192,+191]
+    //   I → X: scaled_I = (I >>> 3) × 3 / 4  where I ∈ [−2048,+2047]
+    //          First: I >>> 3 → [−256,+255]
+    //          Then: × 3/4 → [−192,+191] (anamorphic compression)
     //          → X ∈ [128, 511] ✓ fits in [0, 639]
     //
     //   Q → Y: scaled_Q = Q >>> 3  (no correction needed)
@@ -176,8 +177,9 @@ module constellation_renderer
     // Result: Constellation appears "narrow" in 640×480 but renders perfectly
     //         circular when monitor scales to 16:9.
     // ========================================================================
-    wire signed [12:0] scaled_I = ($signed(sym_I) * 3) >>> 5;  // Anamorphic X: ×0.75
-    wire signed [12:0] scaled_Q = $signed(sym_Q) >>> 3;        // Standard Y
+    wire signed [12:0] scaled_I_pre = $signed(sym_I) >>> 3;     // ÷8 first
+    wire signed [12:0] scaled_I = (scaled_I_pre * 3 + 2) >>> 2; // ×0.75 (anamorphic)
+    wire signed [12:0] scaled_Q = $signed(sym_Q) >>> 3;         // Standard Y
 
     // Correctly handle signed arithmetic for coordinate conversion
     wire signed [12:0] x_coord = $signed({1'b0, CENTER_X}) + scaled_I;
@@ -231,9 +233,9 @@ module constellation_renderer
         hit_quadrant = 2'b00;
         for (int j = 0; j < MAX_DOTS; j = j + 1) begin
             if (dot_valid[j]) begin
-                // Check 4×4 region around dot center (larger, more visible)
-                if ((h_cnt >= dot_x[j]) && (h_cnt < dot_x[j] + 4) &&
-                    (v_cnt >= dot_y[j]) && (v_cnt < dot_y[j] + 4)) begin
+                // Check 2×2 region around dot center (compact, prevents overlap)
+                if ((h_cnt >= dot_x[j]) && (h_cnt < dot_x[j] + 2) &&
+                    (v_cnt >= dot_y[j]) && (v_cnt < dot_y[j] + 2)) begin
                     pixel_hit = 1'b1;
                     // Determine quadrant based on dot position relative to center
                     hit_quadrant = {(dot_y[j] < CENTER_Y), (dot_x[j] >= CENTER_X)};
@@ -255,9 +257,9 @@ module constellation_renderer
     // ========================================================================
     wire in_active_area = (h_cnt < H_ACTIVE) && (v_cnt < V_ACTIVE);
 
-    // Center axes (thicker for visibility: 3 pixels wide)
-    wire on_axis_x = (h_cnt >= CENTER_X - 1) && (h_cnt <= CENTER_X + 1) && (v_cnt < V_ACTIVE);
-    wire on_axis_y = (v_cnt >= CENTER_Y - 1) && (v_cnt <= CENTER_Y + 1) && (h_cnt < H_ACTIVE);
+    // Center axes (1 pixel wide)
+    wire on_axis_x = (h_cnt == CENTER_X) && (v_cnt < V_ACTIVE);
+    wire on_axis_y = (v_cnt == CENTER_Y) && (h_cnt < H_ACTIVE);
     wire on_main_axis = in_active_area && (on_axis_x || on_axis_y);
 
     // Screen border (1 pixel)
@@ -266,41 +268,61 @@ module constellation_renderer
         (v_cnt == 0) || (v_cnt == V_ACTIVE - 1)
     );
 
-    // Tick marks at 16-QAM symbol positions (>>>3 scaling)
-    // ±648>>>3=81px, ±1943>>>3=243px
-    localparam int TICK_INNER = 81;   // Inner symbols
-    localparam int TICK_OUTER = 243;  // Outer symbols
-    localparam int TICK_LENGTH = 12;  // 12 pixels long
+    // Tick marks at 16-QAM symbol positions with anamorphic correction
+    // QAM positions: I=±648, ±1943  Q=±648, ±1943
+    // Base scaling: >>>3 → ±81px, ±243px
+    // X-axis needs anamorphic correction (×0.75):
+    localparam int TICK_INNER_X = 61;   // (81 * 3) / 4 ≈ 61px (anamorphic)
+    localparam int TICK_OUTER_X = 182;  // (243 * 3) / 4 ≈ 182px (anamorphic)
+    // Y-axis uses standard scaling (no correction):
+    localparam int TICK_INNER_Y = 81;   // Inner symbols
+    localparam int TICK_OUTER_Y = 243;  // Outer symbols
+    localparam int TICK_LENGTH = 12;    // 12 pixels long
     
     wire on_tick_x = in_active_area && (
-        // Horizontal ticks on Y-axis (marking I values)
+        // Horizontal ticks on Y-axis (marking I values) - use X correction
         ((v_cnt >= CENTER_Y - TICK_LENGTH) && (v_cnt <= CENTER_Y + TICK_LENGTH)) && (
-            (h_cnt == CENTER_X - TICK_OUTER) ||
-            (h_cnt == CENTER_X - TICK_INNER) ||
-            (h_cnt == CENTER_X + TICK_INNER) ||
-            (h_cnt == CENTER_X + TICK_OUTER)
+            (h_cnt == CENTER_X - TICK_OUTER_X) ||
+            (h_cnt == CENTER_X - TICK_INNER_X) ||
+            (h_cnt == CENTER_X + TICK_INNER_X) ||
+            (h_cnt == CENTER_X + TICK_OUTER_X)
         )
     );
     
     wire on_tick_y = in_active_area && (
-        // Vertical ticks on X-axis (marking Q values)
+        // Vertical ticks on X-axis (marking Q values) - use Y standard
         ((h_cnt >= CENTER_X - TICK_LENGTH) && (h_cnt <= CENTER_X + TICK_LENGTH)) && (
-            (v_cnt == CENTER_Y - TICK_OUTER) ||
-            (v_cnt == CENTER_Y - TICK_INNER) ||
-            (v_cnt == CENTER_Y + TICK_INNER) ||
-            (v_cnt == CENTER_Y + TICK_OUTER)
+            (v_cnt == CENTER_Y - TICK_OUTER_Y) ||
+            (v_cnt == CENTER_Y - TICK_INNER_Y) ||
+            (v_cnt == CENTER_Y + TICK_INNER_Y) ||
+            (v_cnt == CENTER_Y + TICK_OUTER_Y)
         )
     );
 
     wire on_ticks = on_tick_x || on_tick_y;
 
-    // Decision boundary lines (midpoint between inner and outer: ±162 pixels)
-    localparam int BOUNDARY_OFFSET = 162;  // (81 + 243) / 2 ≈ 162
+    // Decision boundary lines with anamorphic correction
+    // Midpoint between inner and outer: (81+243)/2 = 162px base
+    localparam int BOUNDARY_OFFSET_X = 122;  // (162 * 3) / 4 ≈ 122px (anamorphic)
+    localparam int BOUNDARY_OFFSET_Y = 162;  // Standard (no correction)
     wire on_decision = in_active_area && (
-        (h_cnt == CENTER_X - BOUNDARY_OFFSET) ||
-        (h_cnt == CENTER_X + BOUNDARY_OFFSET) ||
-        (v_cnt == CENTER_Y - BOUNDARY_OFFSET) ||
-        (v_cnt == CENTER_Y + BOUNDARY_OFFSET)
+        (h_cnt == CENTER_X - BOUNDARY_OFFSET_X) ||
+        (h_cnt == CENTER_X + BOUNDARY_OFFSET_X) ||
+        (v_cnt == CENTER_Y - BOUNDARY_OFFSET_Y) ||
+        (v_cnt == CENTER_Y + BOUNDARY_OFFSET_Y)
+    );
+
+    // Reference square for measuring anamorphic correction
+    // This rectangle will appear as a perfect square on 16:9 displays
+    // Range covers full constellation area with some margin
+    localparam int SQUARE_SIZE_X = 200;  // ±200px (anamorphic, will stretch to match Y)
+    localparam int SQUARE_SIZE_Y = 260;  // ±260px (standard)
+    wire on_reference_square = in_active_area && (
+        ((h_cnt == CENTER_X - SQUARE_SIZE_X) || (h_cnt == CENTER_X + SQUARE_SIZE_X)) &&
+        (v_cnt >= CENTER_Y - SQUARE_SIZE_Y) && (v_cnt <= CENTER_Y + SQUARE_SIZE_Y)
+    ) || (
+        ((v_cnt == CENTER_Y - SQUARE_SIZE_Y) || (v_cnt == CENTER_Y + SQUARE_SIZE_Y)) &&
+        (h_cnt >= CENTER_X - SQUARE_SIZE_X) && (h_cnt <= CENTER_X + SQUARE_SIZE_X)
     );
 
     // ========================================================================
@@ -311,6 +333,7 @@ module constellation_renderer
     // Q3 (bot-left,  -I-Q):    Yellow
     // Q4 (bot-right, +I-Q):    Magenta
     // Decision bounds: dark blue
+    // Reference square: white (for measuring aspect ratio)
     // Main axes: light gray
     // Ticks: medium gray
     // Border: dark gray
@@ -339,6 +362,8 @@ module constellation_renderer
                 rgb_pixel <= 24'h707070;         // Medium gray tick marks
             else if (on_decision)
                 rgb_pixel <= 24'h303080;         // Dark blue decision bounds
+            else if (on_reference_square)
+                rgb_pixel <= 24'hFFFFFF;         // White reference square
             else if (on_border)
                 rgb_pixel <= 24'h505050;         // Dark gray border
             else
