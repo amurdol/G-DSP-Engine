@@ -26,6 +26,7 @@ env/
 sim/out/
 sim/output/
 sim/constellation_frame.csv
+sim/vectors/rx_constellation.csv
 # --- Gowin EDA ---
 gowin/**/impl/
 gowin/**/temp/

@@ -177,14 +177,15 @@ module constellation_renderer
     // Result: Constellation fills the validated square area that
     //         appears as perfect square on 16:9 displays.
     // ========================================================================
-    // Simplified scaling: ×46/512 = ×(32+16-2)/512 ≈ ×(3/32) using shifts
-    // More efficient: x*46 = x*32 + x*16 - x*2 = (x<<5) + (x<<4) - (x<<1)
-    // But simpler: use x*3/32 which gives similar result: 1943*3/32 = 182
-    // Adjusted: use ×3 then >>>5 (÷32) = 0.09375 vs 0.0898 target (4% error, acceptable)
-    wire signed [14:0] scaled_I_pre = ($signed(sym_I) * 3) >>> 5;  // ×3/32 ≈ ×46/512
+    // Simplified scaling: ×46/512 ≈ ×(3/32) using shifts
+    // With 5-tap RRC matched filter, output levels are ~80% of mapper:
+    //   ±1943 → ~±1560, ±648 → ~±520
+    // Use ×4/32 = ×1/8 to compensate: 1560/8 = 195px (fills display area)
+    // Mapper mode (±1943): 1943/8 = 243px — slightly larger but within bounds
+    wire signed [14:0] scaled_I_pre = ($signed(sym_I) * 4) >>> 5;  // ×4/32 = ×1/8
     wire signed [12:0] scaled_I = (scaled_I_pre * 3 + 2) >>> 2;     // ×0.75 anamorphic
     
-    wire signed [14:0] scaled_Q_pre = ($signed(sym_Q) * 3) >>> 5;  // ×3/32 ≈ ×46/512
+    wire signed [14:0] scaled_Q_pre = ($signed(sym_Q) * 4) >>> 5;  // ×4/32 = ×1/8
     wire signed [12:0] scaled_Q = scaled_Q_pre[12:0];               // Direct (no anamorphic)
 
     // Correctly handle signed arithmetic for coordinate conversion

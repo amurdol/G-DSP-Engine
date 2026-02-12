@@ -80,8 +80,9 @@ module costas_loop
     localparam int GEAR_SHIFT_SYM = 300; // Switch after 300 symbols (more time)
 
     // Dead zone: integrator ignores errors below this threshold.
-    //   Prevents quantisation noise from accumulating into omega.
-    localparam int DEAD_ZONE = 50;
+    //   Prevents ISI-induced noise (~100-150 with 5-tap RRC) from
+    //   accumulating into omega and causing NCO oscillation.
+    localparam int DEAD_ZONE = 200;
 
     // Lock detector
     localparam int LOCK_AVG_SHIFT = 6;  // Averaging time constant ~64 symbols
@@ -241,7 +242,7 @@ module costas_loop
     //
     // Phase 45° = 32/256 of full circle = 32 × 256 = 8192 in upper byte
     // ====================================================================
-    localparam [NCO_W-1:0] NCO_PHASE_INIT = 16'h0000;  // DIAG: 0° frozen
+    localparam [NCO_W-1:0] NCO_PHASE_INIT = 16'h0000;  // No initial offset
 
     logic [NCO_W-1:0] nco_phase;
     wire  [7:0]       phase_byte = nco_phase[NCO_W-1 -: 8]; // upper 8 bits
@@ -398,26 +399,15 @@ module costas_loop
                 if (costas_holdcnt < 8'd255)
                     costas_holdcnt <= costas_holdcnt + 1'b1;
 
-                // === DIAGNOSTIC: NCO FROZEN ===
-                // Freeze NCO and omega to test rotator passthrough.
-                // With phase=0: cos=2047, sin=0 → identity rotation.
-                // Mode 3 should show 16 points if rotator works.
-                // Remove this block and uncomment below to re-enable loop.
+                // NCO FROZEN: bypass loop dynamics.
+                // Hardware testing confirmed the loop filter oscillates
+                // due to ISI from 5-tap RRC (~20% residual).  With no
+                // real CFO (TX/RX share the same 27 MHz clock), freezing
+                // the NCO at phase=0 gives a clean passthrough.
+                // TODO: increase RRC to 9+ taps to reduce ISI, then
+                //       re-enable loop with proper dead zone.
                 nco_phase <= '0;
                 omega     <= '0;
-
-                // --- NORMAL LOOP (disabled for diagnostic) ---
-                // if (costas_active) begin
-                //     nco_phase <= nco_phase + NCO_W'(omega) + NCO_W'(kp_term);
-                //     if (err_abs > DEAD_ZONE[DATA_WIDTH-1:0]) begin
-                //         if (omega_next > FREQ_BOUND)
-                //             omega <= FREQ_BOUND;
-                //         else if (omega_next < -FREQ_BOUND)
-                //             omega <= -FREQ_BOUND;
-                //         else
-                //             omega <= omega_next;
-                //     end
-                // end
             end
         end
     end
