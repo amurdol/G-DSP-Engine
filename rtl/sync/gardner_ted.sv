@@ -66,7 +66,7 @@ module gardner_ted
     //   Kp = 2^{-KP_SHIFT},  Ki = 2^{-KI_SHIFT}.
     //   Moderate bandwidth: fast pull-in, low self-noise once locked.
     localparam int KP_SHIFT = 8;    // Kp ≈ 1/256 (conservative)
-    localparam int KI_SHIFT = 16;   // Ki ≈ 1/65536 (near-zero freq tracking)
+    localparam int KI_SHIFT = 14;   // Ki ≈ 1/16384 (was 16, caused warning)
 
     // Dead zone: ignore timing errors below this threshold.
     // Prevents quantization-noise-induced integrator drift.
