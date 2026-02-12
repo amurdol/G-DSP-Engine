@@ -318,13 +318,15 @@ module costas_loop
     assign Q_hat = qam_slice(rot_Q_r);
 
     // --- DD Phase Error (cross-product) ---
-    //   e = rot_I · Q_hat − rot_Q · I_hat
+    //   e = rot_Q · I_hat − rot_I · Q_hat   (standard DD cross-product)
+    //   Sign convention: positive error when NCO lags channel phase,
+    //   ensuring negative feedback (NCO advances to catch up).
     //   Products are 24-bit (Q2.22).  Difference is 25-bit.
     //   We take bits [23:12] ≈ Q2.10 as a 12-bit error for the loop filter.
     wire signed [PRODUCT_WIDTH-1:0] pe_iq = rot_I_r * Q_hat;
     wire signed [PRODUCT_WIDTH-1:0] pe_qi = rot_Q_r * I_hat;
-    wire signed [PRODUCT_WIDTH:0]   pe_full = {pe_iq[PRODUCT_WIDTH-1], pe_iq}
-                                            - {pe_qi[PRODUCT_WIDTH-1], pe_qi};
+    wire signed [PRODUCT_WIDTH:0]   pe_full = {pe_qi[PRODUCT_WIDTH-1], pe_qi}
+                                            - {pe_iq[PRODUCT_WIDTH-1], pe_iq};
 
     // Normalise error: shift out the lower frac bits for the loop filter.
     //   pe_full is ~Q2.22 (25 bits).  Taking [23:12] gives ~12-bit dynamic range.

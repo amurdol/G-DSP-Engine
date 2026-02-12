@@ -47,15 +47,20 @@ module tb_tx_top;
     sample_t tx_I, tx_Q;
     logic    tx_valid;
     logic    sym_tick;
+    sample_t map_I, map_Q;
+    logic    map_valid;
 
     tx_top u_dut (
-        .clk      (clk),
-        .rst_n    (rst_n),
-        .en       (en),
-        .tx_I     (tx_I),
-        .tx_Q     (tx_Q),
-        .tx_valid (tx_valid),
-        .sym_tick (sym_tick)
+        .clk       (clk),
+        .rst_n     (rst_n),
+        .en        (en),
+        .tx_I      (tx_I),
+        .tx_Q      (tx_Q),
+        .tx_valid  (tx_valid),
+        .sym_tick  (sym_tick),
+        .map_I     (map_I),
+        .map_Q     (map_Q),
+        .map_valid (map_valid)
     );
 
     // -----------------------------------------------------------------------

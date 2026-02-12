@@ -35,9 +35,12 @@
 //   │               └────────────────────────────────────────────────┘   │
 //   └─────────────────────────────────────────────────────────────────────┘
 //
-// Button S1 cycles noise_magnitude: 0 → 20 → 50 → 100 (repeat)
-// LEDs[3:0] display current noise level (binary indicator)
-// LEDs[5:4] show lock status and heartbeat
+// Button S1 cycles diagnostic display mode:
+//   Mode 0: QAM mapper output (raw symbols → expect 16 clean points)
+//   Mode 1: TX RRC output (post pulse-shaping → ISI visible)
+//   Mode 2: Channel output (TX + noise)
+//   Mode 3: Full RX chain (through Costas loop demod)
+// LEDs[2:3] display current mode, LED[1]=lock, LED[4]=PLL, LED[5]=heartbeat
 // ============================================================================
 
 module gdsp_top
@@ -154,16 +157,8 @@ module gdsp_top
         end
     end
 
-    // Noise magnitude lookup
-    always_comb begin
-        case (noise_sel)
-            2'b00:   noise_magnitude = 8'd0;
-            2'b01:   noise_magnitude = 8'd20;
-            2'b10:   noise_magnitude = 8'd50;
-            2'b11:   noise_magnitude = 8'd100;
-            default: noise_magnitude = 8'd0;
-        endcase
-    end
+    // Diagnostic mode: noise fixed to 0 for clean bypass testing
+    assign noise_magnitude = 8'd0;
 
     // ========================================================================
     // TX Subsystem
@@ -171,15 +166,20 @@ module gdsp_top
     sample_t tx_I, tx_Q;
     logic    tx_valid;
     logic    sym_tick;
+    sample_t map_I, map_Q;
+    logic    map_valid;
 
     tx_top u_tx (
-        .clk      (clk_dsp),
-        .rst_n    (sys_rst_n),
-        .en       (1'b1),
-        .tx_I     (tx_I),
-        .tx_Q     (tx_Q),
-        .tx_valid (tx_valid),
-        .sym_tick (sym_tick)
+        .clk       (clk_dsp),
+        .rst_n     (sys_rst_n),
+        .en        (1'b1),
+        .tx_I      (tx_I),
+        .tx_Q      (tx_Q),
+        .tx_valid  (tx_valid),
+        .sym_tick  (sym_tick),
+        .map_I     (map_I),
+        .map_Q     (map_Q),
+        .map_valid (map_valid)
     );
 
     // ========================================================================
@@ -221,6 +221,48 @@ module gdsp_top
     );
 
     // ========================================================================
+    // Diagnostic Display Mux
+    //
+    // Button S1 (noise_sel) selects which signal feeds the renderer:
+    //   0 = QAM mapper symbols (raw, pre-RRC)   → expect 16 clean dots
+    //   1 = TX output (post-RRC pulse shaping)   → ISI visible
+    //   2 = Channel output (TX + noise)          → noise = 0 for diag
+    //   3 = RX demod output (after Costas loop)  → normal operation
+    // ========================================================================
+    sample_t disp_I, disp_Q;
+    logic    disp_valid;
+
+    always_comb begin
+        case (noise_sel)
+            2'b00: begin
+                disp_I     = map_I;
+                disp_Q     = map_Q;
+                disp_valid = map_valid;
+            end
+            2'b01: begin
+                disp_I     = tx_I;
+                disp_Q     = tx_Q;
+                disp_valid = tx_valid & sym_tick;  // Gate to symbol rate
+            end
+            2'b10: begin
+                disp_I     = ch_I;
+                disp_Q     = ch_Q;
+                disp_valid = ch_valid & sym_tick;  // Gate to symbol rate
+            end
+            2'b11: begin
+                disp_I     = demod_I;
+                disp_Q     = demod_Q;
+                disp_valid = demod_valid;
+            end
+            default: begin
+                disp_I     = demod_I;
+                disp_Q     = demod_Q;
+                disp_valid = demod_valid;
+            end
+        endcase
+    end
+
+    // ========================================================================
     // Constellation Renderer (clk_pixel domain)
     //
     // sym_valid from DSP domain needs CDC — the renderer handles this
@@ -232,9 +274,9 @@ module gdsp_top
     constellation_renderer u_renderer (
         .clk_pixel  (clk_pixel),
         .rst_n      (sys_rst_n),
-        .sym_I      (demod_I),
-        .sym_Q      (demod_Q),
-        .sym_valid  (demod_valid),
+        .sym_I      (disp_I),
+        .sym_Q      (disp_Q),
+        .sym_valid  (disp_valid),
         .rgb_pixel  (rgb_pixel),
         .hsync      (video_hsync),
         .vsync      (video_vsync),
@@ -279,14 +321,15 @@ module gdsp_top
     end
 
     // LED mapping (active-low, per design spec):
-    // LED[0]: reset status (LOW when reset active)
+    // LED[0]: reset status
     // LED[1]: demodulator lock (Costas loop phase lock)
-    // LED[2-3]: noise magnitude low bits
-    // LED[4-5]: noise magnitude high bits + heartbeat
+    // LED[2-3]: diagnostic display mode (00=mapper, 01=TX, 10=ch, 11=demod)
+    // LED[4]: PLL lock
+    // LED[5]: heartbeat
     assign led[0] = ~sys_rst_n;           // Reset indicator (active-low)
-    assign led[1] = ~demod_lock;          // Demod lock status (vital!)
-    assign led[2] = ~noise_sel[0];        // Noise level bit 0
-    assign led[3] = ~noise_sel[1];        // Noise level bit 1
+    assign led[1] = ~demod_lock;          // Demod lock status
+    assign led[2] = ~noise_sel[0];        // Diag mode bit 0
+    assign led[3] = ~noise_sel[1];        // Diag mode bit 1
     assign led[4] = ~pll_lock;            // PLL lock diagnostic
     assign led[5] = ~heartbeat_cnt[24];   // Heartbeat (must always blink)
 

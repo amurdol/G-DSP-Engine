@@ -90,13 +90,16 @@ module tb_rx_top;
     logic    sym_tick;
 
     tx_top u_tx (
-        .clk      (clk),
-        .rst_n    (rst_n),
-        .en       (tx_en),
-        .tx_I     (tx_I),
-        .tx_Q     (tx_Q),
-        .tx_valid (tx_valid),
-        .sym_tick (sym_tick)
+        .clk       (clk),
+        .rst_n     (rst_n),
+        .en        (tx_en),
+        .tx_I      (tx_I),
+        .tx_Q      (tx_Q),
+        .tx_valid  (tx_valid),
+        .sym_tick  (sym_tick),
+        .map_I     (),
+        .map_Q     (),
+        .map_valid ()
     );
 
     // -----------------------------------------------------------------------

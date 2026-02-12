@@ -18,13 +18,16 @@ module tb_rrc_chain;
 
     // TX top
     tx_top u_tx (
-        .clk      (clk),
-        .rst_n    (rst_n),
-        .en       (1'b1),
-        .tx_I     (tx_I),
-        .tx_Q     (tx_Q),
-        .tx_valid (tx_valid),
-        .sym_tick (sym_tick)
+        .clk       (clk),
+        .rst_n     (rst_n),
+        .en        (1'b1),
+        .tx_I      (tx_I),
+        .tx_Q      (tx_Q),
+        .tx_valid  (tx_valid),
+        .sym_tick  (sym_tick),
+        .map_I     (),
+        .map_Q     (),
+        .map_valid ()
     );
 
     // RX RRC filters
