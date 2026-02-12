@@ -18,9 +18,9 @@
 //
 // Architecture (2-stage pipeline at symbol rate):
 //
-//   Stage 1 — Phase Rotator:
-//     rot_I = sym_I · cos(θ) − sym_Q · sin(θ)
-//     rot_Q = sym_I · sin(θ) + sym_Q · cos(θ)
+//   Stage 1 — Phase Rotator (CONJUGATE to remove channel phase):
+//     rot_I = sym_I · cos(θ) + sym_Q · sin(θ)
+//     rot_Q = sym_Q · cos(θ) − sym_I · sin(θ)
 //     sin/cos from a quarter-wave LUT (65 × 12-bit) with quadrant folding.
 //     4 multipliers, but active only at symbol rate (~27/4 ≈ 6.75 MHz).
 //
@@ -72,11 +72,12 @@ module costas_loop
     //                   converges omega to freq offset without Kp stealing error.
     //     Tracking    : strong Kp, frozen Ki → fast phase fine-tuning,
     //                   omega stays locked at the acquired value.
-    localparam int KP_SHIFT_ACQ = 8;     // Acquisition Kp ≈ 1/256 (weak)
+    //   NOTE: Increased gains for robust acquisition with 5-tap ISI (~20%).
+    localparam int KP_SHIFT_ACQ = 5;     // Acquisition Kp ≈ 1/32  (stronger for ISI)
     localparam int KP_SHIFT_TRK = 3;     // Tracking   Kp ≈ 1/8   (strong)
-    localparam int KI_SHIFT_ACQ = 7;     // Acquisition Ki ≈ 1/128  (active)
+    localparam int KI_SHIFT_ACQ = 4;     // Acquisition Ki ≈ 1/16  (aggressive)
     localparam int KI_SHIFT_TRK = 12;    // Tracking   Ki ≈ 1/4096 (frozen)
-    localparam int GEAR_SHIFT_SYM = 200; // Switch after 200 symbols
+    localparam int GEAR_SHIFT_SYM = 300; // Switch after 300 symbols (more time)
 
     // Dead zone: integrator ignores errors below this threshold.
     //   Prevents quantisation noise from accumulating into omega.
@@ -232,15 +233,25 @@ module costas_loop
 
     // ====================================================================
     // NCO Phase Register
+    //
+    // Initialize with a non-zero phase offset (π/4 = 45°) to force the
+    // loop to actively correct from startup. Without this, in a system
+    // with zero CFO and zero initial phase error, the loop would idle
+    // at zero correction and never demonstrate active tracking.
+    //
+    // Phase 45° = 32/256 of full circle = 32 × 256 = 8192 in upper byte
     // ====================================================================
+    localparam [NCO_W-1:0] NCO_PHASE_INIT = 16'h2000;  // 45° initial offset
+
     logic [NCO_W-1:0] nco_phase;
     wire  [7:0]       phase_byte = nco_phase[NCO_W-1 -: 8]; // upper 8 bits
 
     // ====================================================================
     // Stage 1 — Phase Rotator  (registered on sym_strobe)
     //
-    //   rot_I = sym_I · cos − sym_Q · sin     (4 DSP multiplies)
-    //   rot_Q = sym_I · sin + sym_Q · cos
+    //   CONJUGATE rotation to REMOVE channel phase:
+    //     rot_I = sym_I · cos + sym_Q · sin     (4 DSP multiplies)
+    //     rot_Q = sym_Q · cos − sym_I · sin
     //
     //   Products are Q2.22 (24-bit).  After add/sub → 25-bit.
     //   Truncated back to Q1.11 with saturation.
@@ -255,11 +266,11 @@ module costas_loop
     wire signed [PRODUCT_WIDTH-1:0] p_is = sym_I * sin_val;  // I·sin
     wire signed [PRODUCT_WIDTH-1:0] p_qc = sym_Q * cos_val;  // Q·cos
 
-    // 25-bit add/sub
+    // 25-bit add/sub — CONJUGATE rotation (de-rotate by -phase)
     wire signed [PRODUCT_WIDTH:0] rot_I_full = {p_ic[PRODUCT_WIDTH-1], p_ic}
-                                             - {p_qs[PRODUCT_WIDTH-1], p_qs};
-    wire signed [PRODUCT_WIDTH:0] rot_Q_full = {p_is[PRODUCT_WIDTH-1], p_is}
-                                             + {p_qc[PRODUCT_WIDTH-1], p_qc};
+                                             + {p_qs[PRODUCT_WIDTH-1], p_qs};
+    wire signed [PRODUCT_WIDTH:0] rot_Q_full = {p_qc[PRODUCT_WIDTH-1], p_qc}
+                                             - {p_is[PRODUCT_WIDTH-1], p_is};
 
     // Truncate Q2.22 → Q1.11 with saturation
     //   Take bits [22:11].  Check guard bits [24:23] for overflow.
@@ -367,7 +378,7 @@ module costas_loop
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            nco_phase      <= '0;
+            nco_phase      <= NCO_PHASE_INIT;  // Start with phase offset
             omega          <= '0;
             costas_holdcnt <= '0;
             demod_I_r      <= '0;
