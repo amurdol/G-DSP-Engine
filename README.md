@@ -12,11 +12,11 @@ running on the **Sipeed Tang Nano 9K** (Gowin GW1NR-LV9QN88PC6/I5).
 The system performs complete transmit/receive signal processing including:
 
 - **Modulation**: Gray-coded 16-QAM symbol mapping
-- **Pulse Shaping**: Root-raised cosine (RRC) FIR filter, α=0.25, 33 taps
+- **Pulse Shaping**: Root-raised cosine (RRC) FIR filter, α=0.25, 5 taps
 - **Channel Model**: Parametric AWGN noise injection (CLT-based)
 - **Timing Recovery**: Gardner TED with NCO-based interpolation
 - **Carrier Recovery**: Decision-directed Costas loop with dual gear-shifting
-- **Visualisation**: Real-time IQ constellation on **720p @ 60 Hz HDMI**
+- **Visualisation**: Real-time IQ constellation on **480p @ 60 Hz HDMI**
 
 No soft-core CPU is used in the data path — all DSP runs purely in RTL.
 
@@ -37,7 +37,7 @@ No soft-core CPU is used in the data path — all DSP runs purely in RTL.
 │                                                                       │     │
 │  ┌─────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐             │     │
 │  │  HDMI   │<──│ Constel. │<──│  Costas  │<──│ Gardner  │<────────────┘     │
-│  │ 720p60  │   │ Renderer │   │   Loop   │   │   TED    │                   │
+│  │ 480p60  │   │ Renderer │   │   Loop   │   │   TED    │                   │
 │  └─────────┘   └──────────┘   └──────────┘   └──────────┘                   │
 │    Phase 4        Phase 4        Phase 3        Phase 3                     │
 │                                                                             │
@@ -52,11 +52,11 @@ No soft-core CPU is used in the data path — all DSP runs purely in RTL.
 |-----------------|------------------------------------------|
 | **FPGA**        | Gowin GW1NR-LV9QN88PC6/I5               |
 | **LUTs**        | 8,640                                    |
-| **DSP Slices**  | 20 (MULT9×pREG)                         |
+| **DSP Slices**  | 10 (MULT18)                              |
 | **BSRAM**       | 26 × 18 Kbit                             |
 | **PSRAM**       | 64 Mbit HyperRAM (available, not used)   |
-| **Video Out**   | HDMI 720p @ 60 Hz (TMDS)                 |
-| **Clock**       | 27 MHz → PLL → 27/74.25/371.25 MHz      |
+| **Video Out**   | HDMI 480p @ 60 Hz VGA (DVI/TMDS)         |
+| **Clock**       | 27 MHz → PLL → 27/126 MHz (pix×5)        |
 
 ---
 
@@ -161,13 +161,13 @@ powershell -ExecutionPolicy Bypass -File scripts/run_tests.ps1
 3. Program the Tang Nano 9K via USB
 
 **Physical Interface:**
-- **Button S1**: Cycles noise level (0 → 20 → 50 → 100)
+- **Button S1**: Cycles noise level (0 → 15 → 30 → 50)
 - **Button S2**: System reset
 - **LED[0]**: Heartbeat (~0.8 Hz)
 - **LED[1]**: Costas lock indicator
 - **LED[3:2]**: Noise level (binary)
 - **LED[4]**: PLL lock
-- **HDMI**: Live 720p60 constellation display
+- **HDMI**: Live 480p60 constellation display
 
 ---
 
@@ -196,17 +196,17 @@ powershell -ExecutionPolicy Bypass -File scripts/run_tests.ps1
 
 ---
 
-## Resource Estimation
+## Resource Usage
 
-| Resource      | Used (est.) | Available | Utilisation |
+| Resource      | Used        | Available | Utilisation |
 |---------------|------------:|----------:|:-----------:|
-| LUTs          |      ~5,200 |     8,640 |     60%     |
-| Flip-Flops    |      ~2,800 |     6,480 |     43%     |
-| DSP (MULT9)   |           8 |        20 |     40%     |
-| BSRAM (18kb)  |           4 |        26 |     15%     |
+| Logic         |       6,635 |     8,640 |     77%     |
+| Registers     |       2,321 |     6,693 |     35%     |
+| DSP (MULT18)  |          10 |        10 |    100%     |
+| BSRAM (18kb)  |           0 |        26 |      0%     |
 | PLL           |           1 |         2 |     50%     |
 
-*Note: Actual usage varies with synthesis optimisation settings.*
+*DSP at 100% limits RRC to 5 taps. ISI (~20%) managed by dead zones in sync loops.*
 
 ---
 

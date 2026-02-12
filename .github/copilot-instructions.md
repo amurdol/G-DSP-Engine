@@ -107,10 +107,10 @@ constraints/
 | Video | 480p60 HDMI via DVI |
 
 ## Resource Usage (Current)
-- **Logic:** 90%
-- **CLS:** 95%
+- **Logic:** 77% (6635/8640)
+- **Register:** 35% (2321/6693)
 - **DSP:** 100% (10/10)
-- **BSRAM:** ~50%
+- **BSRAM:** 0%
 
 ## Common Workflow
 
