@@ -197,8 +197,14 @@ el lazo de Costas corrige fase y frecuencia residual.}
 
 El filtro acoplado del receptor reutiliza el mismo m\'{o}dulo
 \texttt{rrc\_filter} empleado en el transmisor (Fase~1), con coeficientes
-RRC de longitud $L = 33$ taps y factor de \emph{roll-off} $\alpha = 0{,}25$.
+RRC de longitud $L = 5$ taps y factor de \emph{roll-off} $\alpha = 0{,}25$.
 Se instancian dos copias id\'{e}nticas, una para cada canal (I~y~Q).
+
+\textbf{Nota:} La reducci\'{o}n de 33~taps a 5~taps, impuesta por la
+limitaci\'{o}n de recursos DSP (100\% de utilizaci\'{o}n), introduce
+aproximadamente un 20\% de ISI residual. Este efecto se mitiga mediante
+las \emph{dead zones} implementadas en los lazos de sincronismo (Gardner y
+Costas), que ignoran errores peque\~{n}os causados por la ISI.
 
 \subsection{Justificaci\'{o}n}
 
@@ -520,15 +526,14 @@ compensaci\'{o}n de ganancia, que operan a tasa de muestra
 \toprule
 \textbf{M\'{o}dulo} & \textbf{Mults.} & \textbf{Tasa} & \textbf{Operaci\'{o}n} \\
 \midrule
-Filtro RRC (I)            & $\leq 5$ & muestra & MAC FIR (33 taps, doblado)\\
-Filtro RRC (Q)            & $\leq 5$ & muestra & MAC FIR \\
-Compensaci\'{o}n ganancia &     2    & muestra & $y \times 1443$ \\
+Filtro RRC (I)            &     2    & muestra & MAC FIR (5 taps)\\
+Filtro RRC (Q)            &     2    & muestra & MAC FIR (5 taps) \\
 Interpolador Gardner      &     2    & s\'{\i}mbolo & $\mu \times \Delta x$ \\
 Error Gardner             &     2    & s\'{\i}mbolo & $(I_\text{prev}-I)\cdot I_\text{mid}$ \\
 Rotador Costas            &     4    & s\'{\i}mbolo & $I\cos$, $Q\sin$, etc. \\
 Error Costas DD           &     2    & s\'{\i}mbolo & $I \hat{Q} - Q \hat{I}$ \\
 \midrule
-\textbf{Total RX}         &  $\leq$\textbf{22} & & \\
+\textbf{Total RX}         &  \textbf{14} & & (compartido con TX: 10 DSP slices) \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -599,6 +604,43 @@ fase oscilante que la ruta proporcional corrige de forma c\'{\i}clica.
 Este efecto es inherente a un NCO de 16~bits y podr\'{\i}a eliminarse
 aumentando la anchura del acumulador a 24--32~bits, como se realiza en
 implementaciones comerciales.
+
+
+% ============================================================================
+\section{Resultados de Simulaci\'{o}n del Costas Loop}
+\label{sec:costas_results}
+% ============================================================================
+
+Las siguientes figuras muestran el comportamiento del lazo Costas bajo
+diferentes condiciones de fase inicial, generadas por el script de
+depuraci\'{o}n \texttt{debug\_rx\_chain.py}.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.65\textwidth]{../figures/debug_01b_after.png}
+    \caption{Constelaci\'{o}n tras el lazo Costas sin impairments
+             (fase inicial 0\textdegree). Los 16 s\'{\i}mbolos est\'{a}n claramente
+             separados, demostrando convergencia correcta.}
+    \label{fig:costas_0deg}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.65\textwidth]{../figures/debug_02b_after.png}
+    \caption{Constelaci\'{o}n tras el lazo Costas con 45\textdegree~de offset
+             de fase inicial. El lazo corrige la rotaci\'{o}n llevando
+             los s\'{\i}mbolos a sus posiciones ideales.}
+    \label{fig:costas_45deg}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.65\textwidth]{../figures/debug_03b_after.png}
+    \caption{Constelaci\'{o}n tras el lazo Costas con 90\textdegree~de offset
+             de fase inicial, dentro del rango de ambig\"{u}edad de 16-QAM.
+             El lazo converge a una de las cuatro orientaciones v\'{a}lidas.}
+    \label{fig:costas_90deg}
+\end{figure}
 
 
 % ============================================================================

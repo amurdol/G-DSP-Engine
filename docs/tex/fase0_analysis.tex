@@ -155,7 +155,7 @@ Los parámetros fundamentales del sistema están centralizados en el paquete
 \textbf{Parámetro}     & \textbf{Símbolo}     & \textbf{Valor}      & \textbf{Unidad} \\
 \midrule
 Frecuencia de reloj    & $f_{clk}$            & 27                  & MHz \\
-Reloj de píxel (HDMI)  & $f_{pix}$            & 74.25               & MHz \\
+Reloj de píxel (HDMI)  & $f_{pix}$            & 25.2                & MHz \\
 Muestras por símbolo   & SPS                  & 4                   & --- \\
 Tasa de muestreo       & $f_s = f_{clk}$      & 27                  & Msps \\
 Tasa de símbolo        & $f_{sym} = f_s$/SPS  & 6.75                & MBaud \\
@@ -163,7 +163,7 @@ Bits por símbolo       & ---                  & 4                   & bits \\
 Tasa de bits           & $R_b$                & 27                  & Mbps \\
 \midrule
 Factor de roll-off     & $\alpha$             & 0.25                & --- \\
-Taps del filtro RRC    & $N_{taps}$           & 33                  & --- \\
+Taps del filtro RRC    & $N_{taps}$           & 5                   & --- \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -303,9 +303,9 @@ La selección de 12 bits (Q1.11) responde a un equilibrio óptimo:
           El multiplicador produce 36 bits, dejando 12 bits de margen para
           acumulación directa dentro del DSP.
 
-    \item \textbf{Ancho del acumulador FIR:} Para 33 taps:
+    \item \textbf{Ancho del acumulador FIR:} Para 5 taps:
           \begin{equation}
-              W_{accum} = W_{prod} + \lceil \log_2(N_{taps}) \rceil = 24 + 6 = 30 \text{ bits}
+              W_{accum} = W_{prod} + \lceil \log_2(N_{taps}) \rceil = 24 + 3 = 27 \text{ bits}
           \end{equation}
 
     \item \textbf{Eficiencia de recursos:} 12 bits vs 16 bits reduce el consumo
@@ -346,6 +346,15 @@ parameter signed [DATA_WIDTH-1:0] QAM_NEG1 = -12'sd648;
 parameter signed [DATA_WIDTH-1:0] QAM_POS1 =  12'sd648;
 parameter signed [DATA_WIDTH-1:0] QAM_POS3 =  12'sd1943;
 \end{lstlisting}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.6\textwidth]{../figures/constellation_16qam.png}
+\caption{Constelación 16-QAM ideal con codificación Gray. Los 16 símbolos se
+         distribuyen en una cuadrícula 4$\times$4 con niveles $\{\pm 648, \pm 1943\}$
+         en formato Q1.11, correspondientes a $\{\pm 1, \pm 3\}/\sqrt{10}$ normalizados.}
+\label{fig:constellation_ideal}
+\end{figure}
 
 % ============================================================================
 \section{Presupuesto de Errores de Cuantización}
@@ -447,10 +456,13 @@ Esta fase estableció los cimientos del proyecto:
           sobre el requisito de 16-QAM, con eficiencia de recursos óptima.
 
     \item \textbf{Parámetros del sistema:} 27 MHz de reloj, 6.75 MBaud, 27 Mbps,
-          $\alpha = 0.25$, 33 taps RRC.
+          $\alpha = 0.25$, 5 taps RRC (limitado por recursos DSP).
 
     \item \textbf{Golden Model:} Referencia bit-exacta en Python para verificación
           rigurosa del RTL en todas las fases subsiguientes.
+
+    \item \textbf{Salida de video:} HDMI 480p a 25.2 MHz (VGA 640$\times$480 @ 60 Hz)
+          para visualización de constelación en tiempo real.
 \end{enumerate}
 
 % ============================================================================

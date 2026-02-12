@@ -18,7 +18,7 @@ package gdsp_pkg;
     // Clock & Reset
     // ========================================================================
     parameter int CLK_FREQ_HZ   = 27_000_000;   // Tang Nano 9K oscillator
-    parameter int HDMI_PIX_CLK  = 74_250_000;   // 720p @ 60 Hz pixel clock
+    parameter int HDMI_PIX_CLK  = 25_200_000;   // 480p @ 60 Hz pixel clock (VGA)
 
     // ========================================================================
     // Fixed-Point Format  Q(INT_W).(FRAC_W)  — total = 1 + INT_W + FRAC_W

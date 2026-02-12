@@ -644,32 +644,35 @@ de cambiar la resoluci\'{o}n}.
 
 \subsection{Optimizaci\'{o}n del Filtro RRC}
 
-Adicionalmente, el filtro RRC se redujo de 33 a 17~taps para cumplir con el
-presupuesto de LUTs disponibles (8640 en GW1NR-9):
+Adicionalmente, el filtro RRC se redujo de 33 a \textbf{5~taps} para cumplir con el
+presupuesto de recursos DSP disponibles (10 bloques MULT18 en GW1NR-9):
 
 \begin{enumerate}
     \item \textbf{Reducci\'{o}n de resoluci\'{o}n de video}: De \SI{720}{p}
           a VGA \SI{480}{p}, reduciendo la frecuencia serial de
           \SI{742,5}{MHz} (inaccesible) a \SI{126}{MHz} (estable).
-    \item \textbf{Reducci\'{o}n del filtro RRC}: De 33 a 17~taps,
+    \item \textbf{Reducci\'{o}n del filtro RRC}: De 33 a 5~taps,
           manteniendo la simetr\'{\i}a y el roll-off $\alpha = 0.25$.
 \end{enumerate}
 
-\subsubsection{Justificaci\'{o}n del Filtro de 17 Taps}
+\subsubsection{Justificaci\'{o}n del Filtro de 5 Taps}
 
-El filtro RRC de 17~taps representa un compromiso razonable:
+El filtro RRC de 5~taps representa el compromiso m\'{\i}nimo viable:
 
 \begin{itemize}
-    \item A\'{u}n cubre aproximadamente 4~per\'{\i}odos de s\'{\i}mbolo
-          (17 taps / 4 SPS $\approx$ 4 s\'{\i}mbolos).
+    \item Cubre apenas 1~per\'{\i}odo de s\'{\i}mbolo
+          (5 taps / 4 SPS $\approx$ 1.25 s\'{\i}mbolos).
     \item Mantiene simetr\'{\i}a par (Tipo~I), garantizando fase lineal.
-    \item El SQNR de cuantizaci\'{o}n permanece alto ($>$\SI{60}{dB}).
-    \item Reduce $\sim$50\% de los multiplicadores respecto a 33~taps.
+    \item Introduce aproximadamente 20\% de ISI residual, gestionado
+          mediante \emph{dead zones} en los lazos de sincronismo.
+    \item Permite utilizar el 100\% de los 10 DSP slices para la cadena
+          completa (TX RRC I/Q, RX matched I/Q, Gardner, Costas).
     \item Es suficiente para prop\'{o}sitos did\'{a}cticos del TFG.
 \end{itemize}
 
 Para aplicaciones de producci\'{o}n, se recomendar\'{\i}a un filtro
-m\'{a}s largo o una FPGA de mayor capacidad (ej.~GW2AR con $>$18k~LUTs).
+m\'{a}s largo (17--33 taps) sobre una FPGA de mayor capacidad
+(ej.~GW2AR con $>$18k~LUTs y 28~DSP slices).
 
 
 % ============================================================================
@@ -689,13 +692,23 @@ subsistemas en un demostrador funcional sobre Tang Nano~9K:
           bot\'{o}n, indicadores LED de estado.
     \item \textbf{Gesti\'{o}n de m\'{u}ltiples relojes}: PLL con dos
           salidas + CLKDIV, CDC con doble FF.
-    \item \textbf{Optimizaci\'{o}n de recursos}: 480p + 17~taps RRC para
-          caber en los 8640~LUTs del GW1NR-9.
+    \item \textbf{Optimizaci\'{o}n de recursos}: 480p + 5~taps RRC para
+          caber en los 10~DSP slices del GW1NR-9 (100\% utilizaci\'{o}n).
 \end{itemize}
 
 El sistema est\'{a} listo para demostraci\'{o}n pr\'{a}ctica, mostrando
 visualmente el efecto del ruido sobre la constelaci\'{o}n 16-QAM y la
 capacidad del receptor para mantener sincronizaci\'{o}n.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.65\textwidth]{../figures/constellation_rx_sim.png}
+    \caption{Constelaci\'{o}n 16-QAM capturada en simulaci\'{o}n RTL del
+             sistema completo. Los s\'{\i}mbolos demodulados muestran el
+             ISI residual caracter\'{\i}stico del filtro de 5~taps, pero
+             permanecen claramente separados en cuadrantes.}
+    \label{fig:const_final}
+\end{figure}
 
 
 % ============================================================================

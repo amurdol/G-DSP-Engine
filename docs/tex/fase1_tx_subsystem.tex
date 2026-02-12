@@ -120,7 +120,7 @@ SystemVerilog, son los siguientes:
 \begin{enumerate}[label=\textbf{\arabic*.}]
     \item \texttt{bit\_gen} --- Generador de bits pseudo-aleatorios (PRBS-23).
     \item \texttt{qam16\_mapper} --- Mapeador 16-QAM con codificaci\'{o}n Gray.
-    \item \texttt{rrc\_filter} --- Filtro FIR Root-Raised Cosine (33 taps).
+    \item \texttt{rrc\_filter} --- Filtro FIR Root-Raised Cosine (5 taps).
     \item \texttt{tx\_top} --- Integraci\'{o}n del subsistema completo,
           incluyendo el sobremuestreo por inserci\'{o}n de ceros.
 \end{enumerate}
@@ -255,15 +255,15 @@ resume la evoluci\'{o}n a lo largo del subsistema TX.
         Muestra de entrada      & Q1.11 & 12 & Se\~{n}al I/Q original \\
         Coeficiente FIR         & Q1.11 & 12 & Misma anchura que datos \\
         Producto (dato $\times$ coef.) & Q2.22 & 24 & $12 + 12 = 24$ \\
-        Acumulador (30 bits)    & Q8.22 & 30 & $24 + \lceil\log_2(33)\rceil = 30$ \\
+        Acumulador (27 bits)    & Q5.22 & 27 & $24 + \lceil\log_2(5)\rceil = 27$ \\
         Salida truncada         & Q1.11 & 12 & Redondeo convergente \\
         \bottomrule
     \end{tabular}
 \end{table}
 
-Los 6~bits adicionales del acumulador ($\lceil\log_2(33)\rceil = 6$)
+Los 3~bits adicionales del acumulador ($\lceil\log_2(5)\rceil = 3$)
 previenen cualquier desbordamiento durante la acumulaci\'{o}n de hasta
-33~t\'{e}rminos, garantizando que la precisi\'{o}n num\'{e}rica del filtro
+5~t\'{e}rminos, garantizando que la precisi\'{o}n num\'{e}rica del filtro
 est\'{e} limitada \'{u}nicamente por la truncaci\'{o}n final, y no por
 errores de desbordamiento intermedios.
 
@@ -560,8 +560,7 @@ Los par\'{a}metros de dise\~{n}o seleccionados son:
         \toprule
         \textbf{Par\'{a}metro} & \textbf{Valor} & \textbf{Justificaci\'{o}n} \\
         \midrule
-        N\'{u}mero de taps        & 33     & Impar (simetr\'{\i}a), compromiso
-                                              precisi\'{o}n/recursos \\
+        N\'{u}mero de taps        & 5      & Limitado por recursos DSP (100\% uso) \\
         Factor de roll-off $\alpha$ & 0,25 & Est\'{a}ndar DVB-S2, exceso de
                                               ancho de banda moderado \\
         Muestras por s\'{\i}mbolo (SPS) & 4 & Cumple Nyquist ($f_s > 2f_{\text{sym}}$) \\
@@ -571,13 +570,22 @@ Los par\'{a}metros de dise\~{n}o seleccionados son:
     \end{tabular}
 \end{table}
 
+\textbf{Nota sobre limitaci\'{o}n de recursos:} El dise\~{n}o original contemplaba
+33~taps para una respuesta de pulso \'{o}ptima con atenuaci\'{o}n de
+l\'{o}bulos laterales $> 40$~dB. Sin embargo, la FPGA GW1NR-9 utiliza el
+100\% de sus 10 bloques DSP MULT18 con la arquitectura actual (filtros I/Q TX,
+filtros I/Q RX matched, interpolador Gardner y derotador Costas). Se opt\'{o}
+por reducir a 5~taps, aceptando aproximadamente 20\% de ISI residual a cambio
+de mantener toda la funcionalidad del m\'{o}dem en el dispositivo objetivo.
+El ISI se gestiona mediante una dead zone en los lazos de sincronismo.
+
 La simetr\'{\i}a de fase lineal del filtro ($h[n] = h[N-1-n]$) se verifica
 examinando los coeficientes generados:
 
 \begin{equation}
-    h[0] = h[32] = +18, \quad
-    h[1] = h[31] = +9, \quad
-    \ldots \quad
+    h[0] = h[4] = +536, \quad
+    h[1] = h[3] = +814, \quad
+    h[2] = +922 \;\text{(tap central)}
     h[16] = +922 \;\text{(tap central)}
     \label{eq:symmetry}
 \end{equation}
@@ -728,12 +736,10 @@ $N$ taps es:
 La FPGA GW1NR-9 dispone de 20 bloques MULT9, que operan como 10~bloques
 MULT18 en modo acoplado. La multiplicaci\'{o}n de 12~bits firmados requiere
 MULT18, por lo que se dispone de un m\'{a}ximo de 10~multiplicadores
-hardware. Con 33~taps por canal y dos canales (I/Q), se necesitar\'{\i}an
-66~multiplicadores. El sintetizador de Gowin asigna las 10~unidades MULT18
-disponibles a las etapas con mayor contribuci\'{o}n (t\'{\i}picamente las
-taps centrales) y sintetiza las restantes como multiplicadores en l\'{o}gica
-\textit{fabric} (LUT). A \SI{27}{\mega\hertz}, los multiplicadores basados
-en LUT cumplen holgadamente el \textit{timing}.
+hardware. Con la implementaci\'{o}n actual de 5~taps por filtro, el sistema
+completo (TX RRC I/Q, RX RRC matched I/Q, interpolador Gardner y derotador
+Costas) utiliza el 100\% de los bloques DSP. Esta limitaci\'{o}n conden\'{o}
+la reducci\'{o}n de 33~taps a 5~taps respecto al dise\~{n}o te\'{o}rico inicial.
 
 % ----------------------------------------------------------------------------
 \subsection{An\'{a}lisis de precisi\'{o}n: redondeo convergente}
@@ -741,7 +747,7 @@ en LUT cumplen holgadamente el \textit{timing}.
 % ----------------------------------------------------------------------------
 
 La operaci\'{o}n m\'{a}s delicada del filtro RRC es la
-\textbf{truncaci\'{o}n} del acumulador de 30~bits al formato de salida
+\textbf{truncaci\'{o}n} del acumulador de 27~bits al formato de salida
 Q1.11 (12~bits). Una truncaci\'{o}n simple (descartar los bits menos
 significativos) introduce un sesgo sistem\'{a}tico negativo (\textit{bias}
 de DC) de valor medio $-\Delta/2 = -2^{-12}$, que se acumula a lo largo
@@ -984,7 +990,7 @@ correspondencia con la cadena de procesado.
         \texttt{sample\_t}  & 12 bits & Muestras I/Q (entrada/salida del filtro) \\
         \texttt{coeff\_t}   & 12 bits & Coeficientes del filtro RRC \\
         \texttt{product\_t} & 24 bits & Producto dato $\times$ coeficiente \\
-        \texttt{accum\_t}   & 30 bits & Acumulador del filtro FIR \\
+        \texttt{accum\_t}   & 27 bits & Acumulador del filtro FIR (5 taps) \\
         \bottomrule
     \end{tabular}
 \end{table}
@@ -1055,6 +1061,52 @@ t\'{e}cnica de cada una.
         \bottomrule
     \end{tabular}
 \end{table}
+
+
+% ============================================================================
+\section{Resultados de Simulaci\'{o}n}
+\label{sec:sim_results}
+% ============================================================================
+
+Las siguientes figuras muestran los resultados de simulaci\'{o}n del
+subsistema TX generados por el \textit{Golden Model} en Python.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\textwidth]{../figures/constellation_tx.png}
+    \caption{Constelaci\'{o}n 16-QAM a la salida del transmisor tras el
+             filtrado RRC. Los 16 s\'{\i}mbolos se distribuyen en una
+             cuadr\'{\i}cula 4$\times$4 con niveles normalizados.}
+    \label{fig:const_tx}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\textwidth]{../figures/rrc_impulse.png}
+    \caption{Respuesta al impulso del filtro RRC de 5 taps con
+             $\alpha = 0{,}25$. La simetr\'{\i}a garantiza fase lineal.
+             El tap central ($+922$ en Q1.11) es el de mayor magnitud.}
+    \label{fig:rrc_impulse}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\textwidth]{../figures/spectrum_tx.png}
+    \caption{Espectro de potencia de la se\~{n}al TX. El ancho de banda
+             ocupado es $(1+\alpha) \cdot f_{sym} = 8{,}4$~MHz,
+             exhibiendo la caracter\'{\i}stica ca\'{\i}da del RRC.}
+    \label{fig:spectrum_tx}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\textwidth]{../figures/eye_diagram_I.png}
+    \caption{Diagrama de ojo del canal I. La apertura vertical representa
+             el margen de ruido disponible; la apertura horizontal indica
+             el margen de \textit{timing}. El ISI residual del filtro de
+             5~taps es visible como engrosamiento de las trazas.}
+    \label{fig:eye_tx}
+\end{figure}
 
 
 % ============================================================================
