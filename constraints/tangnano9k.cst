@@ -10,12 +10,12 @@
 IO_LOC  "clk_27m" 52;
 IO_PORT "clk_27m" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
 
-// --- Reset Button S2 (active-low) ---
-IO_LOC  "rst_n" 4;
+// --- Reset Button S2 (active-low) --- Pin 3 per Sipeed schematic v3.2
+IO_LOC  "rst_n" 3;
 IO_PORT "rst_n" IO_TYPE=LVCMOS18 PULL_MODE=UP;
 
-// --- User Button S1 (noise control) ---
-IO_LOC  "btn_user" 3;
+// --- User Button S1 (noise control) --- Pin 4 per Sipeed schematic v3.2
+IO_LOC  "btn_user" 4;
 IO_PORT "btn_user" IO_TYPE=LVCMOS18 PULL_MODE=UP;
 
 // --- Onboard LEDs (active-low) ---

@@ -260,15 +260,21 @@ module gardner_ted
             if (lf_holdoff < 8'd255)
                 lf_holdoff <= lf_holdoff + 1'b1;
 
-            if (lf_active && ted_err_significant) begin
-                // Anti-windup clamp
-                if (int_next > INT_BOUND)
-                    integrator <= INT_BOUND;
-                else if (int_next < -INT_BOUND)
-                    integrator <= -INT_BOUND;
-                else
-                    integrator <= int_next;
+            if (lf_active) begin
+                // Integrator update: only when error is significant (dead zone)
+                // Prevents noise-driven drift when timing is already locked.
+                if (ted_err_significant) begin
+                    // Anti-windup clamp
+                    if (int_next > INT_BOUND)
+                        integrator <= INT_BOUND;
+                    else if (int_next < -INT_BOUND)
+                        integrator <= -INT_BOUND;
+                    else
+                        integrator <= int_next;
+                end
 
+                // NCO adjustment: ALWAYS update (proportional + integrator)
+                // This ensures recovery when noise disappears.
                 nco_adj <= prop_term + integrator;
             end
         end
