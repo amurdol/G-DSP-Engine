@@ -144,13 +144,24 @@ module tb_constellation_renderer;
     // ========================================================================
     // Symbol Injection Task
     // ========================================================================
-    // Injects a symbol with some noise for realistic simulation
-    task automatic inject_symbol(input int idx, input int noise_level);
+    // Injects a symbol with ISI-like spread for realistic visualization.
+    // Real hardware has ~20% ISI from the 5-tap RRC filter, causing symbols
+    // to spread around ideal positions with Gaussian-like distribution.
+    task automatic inject_symbol(input int idx, input int isi_spread);
         logic signed [11:0] noise_I, noise_Q;
+        int rand_I, rand_Q;
         
-        // Simple pseudo-random noise (LFSR-like)
-        noise_I = $random % (noise_level + 1);
-        noise_Q = $random % (noise_level + 1);
+        // Generate symmetric noise: sum of multiple randoms approximates Gaussian
+        // This creates ISI-like spread around constellation points
+        rand_I = ($random % (2*isi_spread+1)) - isi_spread;
+        rand_Q = ($random % (2*isi_spread+1)) - isi_spread;
+        
+        // Add second term for more Gaussian-like distribution
+        rand_I = rand_I + (($random % (isi_spread+1)) - isi_spread/2);
+        rand_Q = rand_Q + (($random % (isi_spread+1)) - isi_spread/2);
+        
+        noise_I = rand_I;
+        noise_Q = rand_Q;
         
         sym_I = qam_symbols_I[idx % 16] + noise_I;
         sym_Q = qam_symbols_Q[idx % 16] + noise_Q;
@@ -185,7 +196,7 @@ module tb_constellation_renderer;
         $display("============================================================");
         
         // Open CSV file for output
-        csv_file = $fopen("constellation_frame.csv", "w");
+        csv_file = $fopen("sim/vectors/constellation_frame.csv", "w");
         if (csv_file == 0) begin
             $display("ERROR: Could not open CSV file for writing!");
             $finish;
@@ -209,7 +220,7 @@ module tb_constellation_renderer;
         // Inject initial symbols (all 16 QAM points)
         $display("[%0t] Injecting initial 16-QAM symbols...", $time);
         for (int i = 0; i < 16; i++) begin
-            inject_symbol(i, 50);  // Small noise
+            inject_symbol(i, 250);  // ISI spread (~15% of full scale)
             repeat(20) @(posedge clk_pixel);
         end
         
@@ -253,7 +264,7 @@ module tb_constellation_renderer;
                 fork
                     begin
                         @(posedge clk_pixel);
-                        inject_symbol(symbol_idx, 100);
+                        inject_symbol(symbol_idx, 300);
                         symbol_idx = (symbol_idx + 1) % 16;
                     end
                 join_none
@@ -324,7 +335,7 @@ module tb_constellation_renderer;
     // Optional: Generate VCD waveform
     // ========================================================================
     initial begin
-        $dumpfile("tb_constellation_renderer.vcd");
+        $dumpfile("sim/waves/tb_constellation_renderer.vcd");
         $dumpvars(0, tb_constellation_renderer);
     end
 

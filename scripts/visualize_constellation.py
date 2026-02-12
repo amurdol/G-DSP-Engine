@@ -35,7 +35,7 @@ HD_WIDTH = 1920
 HD_HEIGHT = 1080
 
 # Output directory for saved images
-OUTPUT_DIR = Path("sim/output")
+OUTPUT_DIR = Path("docs/figures")
 
 
 # ============================================================================
@@ -282,8 +282,7 @@ def main():
         # Default paths to check
         possible_paths = [
             "constellation_frame.csv",
-            "sim/tb/constellation_frame.csv",
-            "sim/output/constellation_frame.csv",
+            "sim/vectors/constellation_frame.csv",
         ]
 
         csv_path = None
