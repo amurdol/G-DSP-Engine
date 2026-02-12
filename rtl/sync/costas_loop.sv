@@ -241,7 +241,7 @@ module costas_loop
     //
     // Phase 45° = 32/256 of full circle = 32 × 256 = 8192 in upper byte
     // ====================================================================
-    localparam [NCO_W-1:0] NCO_PHASE_INIT = 16'h2000;  // 45° initial offset
+    localparam [NCO_W-1:0] NCO_PHASE_INIT = 16'h0000;  // DIAG: 0° frozen
 
     logic [NCO_W-1:0] nco_phase;
     wire  [7:0]       phase_byte = nco_phase[NCO_W-1 -: 8]; // upper 8 bits
@@ -398,24 +398,26 @@ module costas_loop
                 if (costas_holdcnt < 8'd255)
                     costas_holdcnt <= costas_holdcnt + 1'b1;
 
-                // After holdoff: NCO always updates (proportional + freq est.)
-                // Dead zone gates ONLY the frequency integrator to prevent
-                // quantisation-noise-driven drift while allowing the
-                // proportional path to respond to ALL phase errors.
-                if (costas_active) begin
-                    // NCO phase: θ += ω + Kp·e  (always active)
-                    nco_phase <= nco_phase + NCO_W'(omega) + NCO_W'(kp_term);
+                // === DIAGNOSTIC: NCO FROZEN ===
+                // Freeze NCO and omega to test rotator passthrough.
+                // With phase=0: cos=2047, sin=0 → identity rotation.
+                // Mode 3 should show 16 points if rotator works.
+                // Remove this block and uncomment below to re-enable loop.
+                nco_phase <= '0;
+                omega     <= '0;
 
-                    // Frequency integrator: only for large errors
-                    if (err_abs > DEAD_ZONE[DATA_WIDTH-1:0]) begin
-                        if (omega_next > FREQ_BOUND)
-                            omega <= FREQ_BOUND;
-                        else if (omega_next < -FREQ_BOUND)
-                            omega <= -FREQ_BOUND;
-                        else
-                            omega <= omega_next;
-                    end
-                end
+                // --- NORMAL LOOP (disabled for diagnostic) ---
+                // if (costas_active) begin
+                //     nco_phase <= nco_phase + NCO_W'(omega) + NCO_W'(kp_term);
+                //     if (err_abs > DEAD_ZONE[DATA_WIDTH-1:0]) begin
+                //         if (omega_next > FREQ_BOUND)
+                //             omega <= FREQ_BOUND;
+                //         else if (omega_next < -FREQ_BOUND)
+                //             omega <= -FREQ_BOUND;
+                //         else
+                //             omega <= omega_next;
+                //     end
+                // end
             end
         end
     end
