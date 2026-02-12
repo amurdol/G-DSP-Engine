@@ -87,7 +87,8 @@ module costas_loop
     localparam int LOCK_THRESHOLD = 150; // Raw |error| threshold (Q format ~12-bit)
 
     // 16-QAM slicer threshold: midpoint between inner & outer levels
-    //   (|QAM_POS1| + |QAM_POS3|) / 2 = (648 + 1943) / 2 = 1295
+    //   With 5-tap RRC (peak gain ~1.0), levels are original:
+    //   ±648, ±1943. Threshold = (648 + 1943) / 2 = 1296
     localparam sample_t SLICER_TH = 12'sd1296;
 
     // ====================================================================

@@ -83,35 +83,13 @@ module rx_top
     );
 
     // ====================================================================
-    // 1b. Gain Compensation
+    // 1b. No Gain Compensation Needed
     //
-    //   The cascade of two RRC filters (TX + RX) has a peak gain of
-    //   ||h_rrc||² ≈ 0.7095 instead of 1.0.  We compensate by
-    //   multiplying by 1/0.7095 ≈ 1443/1024.  This restores the
-    //   output constellation to full-scale QAM levels.
-    //
-    //   2 extra multipliers (12×12 = 24-bit) at sample rate.
+    //   With 5-tap RRC filters, the cascade peak gain is ~1.0, so no
+    //   compensation is required. Pass matched filter output directly.
     // ====================================================================
-    localparam signed [DATA_WIDTH-1:0] GAIN_CORR = 12'sd1443; // ≈ 1.4094 × 1024
-    localparam int GAIN_SHIFT = 10;
-
-    function automatic sample_t gain_sat(input logic signed [PRODUCT_WIDTH-1:0] prod);
-        logic signed [PRODUCT_WIDTH-GAIN_SHIFT-1:0] shifted;
-        shifted = prod >>> GAIN_SHIFT;
-        if (shifted > 2047)
-            gain_sat = 12'sd2047;
-        else if (shifted < -2048)
-            gain_sat = -12'sd2048;
-        else
-            gain_sat = shifted[DATA_WIDTH-1:0];
-    endfunction
-
-    wire signed [PRODUCT_WIDTH-1:0] gc_prod_I = mf_I * GAIN_CORR;
-    wire signed [PRODUCT_WIDTH-1:0] gc_prod_Q = mf_Q * GAIN_CORR;
-
-    sample_t gc_I, gc_Q;
-    assign gc_I = gain_sat(gc_prod_I);
-    assign gc_Q = gain_sat(gc_prod_Q);
+    wire sample_t gc_I = mf_I;
+    wire sample_t gc_Q = mf_Q;
 
     // ====================================================================
     // 2. Timing Recovery — Gardner TED
