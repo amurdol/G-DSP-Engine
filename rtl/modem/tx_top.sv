@@ -29,11 +29,7 @@ module tx_top
     output sample_t  tx_I,          // Filtered I output (Q1.11)
     output sample_t  tx_Q,          // Filtered Q output (Q1.11)
     output logic     tx_valid,      // Output valid strobe
-    output logic     sym_tick,      // Symbol-rate strobe (debug/sync)
-    // Diagnostic: raw mapper output (pre-upsampling/RRC)
-    output sample_t  map_I,         // Mapper I output (Q1.11)
-    output sample_t  map_Q,         // Mapper Q output (Q1.11)
-    output logic     map_valid      // Mapper valid strobe
+    output logic     sym_tick       // Symbol-rate strobe (debug/sync)
 );
 
     // -----------------------------------------------------------------------
@@ -172,10 +168,5 @@ module tx_top
     assign tx_I     = filt_I;
     assign tx_Q     = filt_Q;
     assign tx_valid = filt_I_valid;  // I and Q are always synchronised
-
-    // Diagnostic: expose raw mapper output
-    assign map_I     = sym_I;
-    assign map_Q     = sym_Q;
-    assign map_valid = sym_valid;
 
 endmodule : tx_top

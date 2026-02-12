@@ -102,9 +102,9 @@ constraints/
 | Sample Rate | 27 MSPS |
 | Symbol Rate | 6.75 Msym/s (SPS=4) |
 | Modulation | 16-QAM (Gray coded) |
-| RRC Filter | 5 taps, α=0.35 |
+| RRC Filter | 5 taps, α=0.25 |
 | Data Width | 12-bit signed (Q1.11) |
-| Video | 720p60 HDMI via DVI |
+| Video | 480p60 HDMI via DVI |
 
 ## Resource Usage (Current)
 - **Logic:** 90%

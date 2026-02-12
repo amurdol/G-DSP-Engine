@@ -95,7 +95,7 @@ module tb_gdsp_top;
     // Button press task
     // -----------------------------------------------------------------------
     task automatic press_button();
-        $display("[TB] Pressing button S1 (diagnostic mode cycle)...");
+        $display("[TB] Pressing button S1 (noise cycle)...");
         btn_user = 1'b0;  // Active-low press
         #(BUTTON_HOLD_NS);
         btn_user = 1'b1;  // Release
@@ -129,10 +129,10 @@ module tb_gdsp_top;
             $display("[WARN] No lock detected within %0d cycles at noise=0", LOCK_TIMEOUT);
         end
 
-        // Test button cycling: mode 0→1→2→3 (mapper→TX→ch→demod)
-        $display("\n[TB] Testing diagnostic display mode cycling via button S1:");
+        // Test button cycling: noise 0→20→50→100
+        $display("\n[TB] Testing noise level cycling via button S1:");
         for (int i = 0; i < 4; i++) begin
-            $display("[TB]   Display mode after %0d presses: LED[3:2] = %b", i, led[3:2]);
+            $display("[TB]   Noise level after %0d presses: LED[3:2] = %b", i, led[3:2]);
             if (i < 3) press_button();
         end
 
@@ -153,7 +153,7 @@ module tb_gdsp_top;
         if (lock_seen)
             $display("  Lock cycle         : %0d (%.2f ms)", lock_cycle, lock_cycle * 37.037e-6);
         $display("  PLL lock LED[4]    : %s", (led[4] == 1'b0) ? "LOCKED" : "UNLOCKED");
-        $display("  Final diag mode    : LED[3:2] = %b", led[3:2]);
+        $display("  Final noise level  : LED[3:2] = %b", led[3:2]);
         $display("  Heartbeat LED[0]   : toggling (observed via VCD)");
         $display("============================================================");
 
