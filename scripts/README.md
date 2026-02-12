@@ -13,6 +13,7 @@ Quick reference for available scripts. Run from project root.
 | **run_constellation_sim.ps1** | `.\scripts\run_constellation_sim.ps1` | **Quick:** Plot RX constellation |
 | | `.\scripts\run_constellation_sim.ps1 -RunRxTest` | Run RX test first, then plot |
 | | `.\scripts\run_constellation_sim.ps1 -SimRenderer` | Full renderer simulation (slow) |
+| **gen_figures.ps1** | `.\scripts\gen_figures.ps1` | Regenerate ALL TFG figures |
 
 ## Python Scripts
 
@@ -48,3 +49,27 @@ Quick reference for available scripts. Run from project root.
 | **VVP Executables** | `sim/out/*.vvp` |
 | **Test Vectors** | `sim/vectors/*.csv`, `sim/vectors/*.mem` |
 | **Figures** | `docs/figures/*.png` |
+
+## Generated Figures (for TFG documentation)
+
+Run these commands to regenerate all figures:
+
+```powershell
+python scripts/plot_constellation.py           # constellation_16qam.png
+python scripts/golden_model.py --nsym 256      # TX/RX chain figures
+python scripts/debug_rx_chain.py               # Costas loop debug
+.\scripts\run_constellation_sim.ps1 -RunRxTest # constellation_rx_sim.png
+```
+
+| Figure | Description |
+|--------|-------------|
+| `constellation_16qam.png` | 16-QAM ideal constellation with AWGN noise |
+| `constellation_tx.png` | TX symbols after pulse shaping |
+| `constellation_rx.png` | RX symbols after matched filter (golden model) |
+| `constellation_rx_sim.png` | RX symbols from RTL simulation |
+| `spectrum_tx.png` | TX signal spectrum |
+| `eye_diagram_I.png` | Eye diagram (I channel) |
+| `rrc_impulse.png` | RRC filter impulse response |
+| `debug_01*.png` | Costas loop: no impairments |
+| `debug_02*.png` | Costas loop: 45° phase offset |
+| `debug_03*.png` | Costas loop: 90° phase offset |

@@ -1,7 +1,7 @@
-// RRC α=0.35, 5 taps, SPS=4
+// RRC α=0.25, 5 taps, SPS=4
 // Format: Q1.11 (12-bit signed), 5 values
-1FF
-325
+218
+32E
 39A
-325
-1FF
+32E
+218
